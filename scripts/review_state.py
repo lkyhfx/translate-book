@@ -144,6 +144,13 @@ def plan(temp_dir):
         result["chunks"].append({"chunk_id": chunk_id, "action": action, "reason": reason})
     result["ready"] = len(result["approved_chunk_ids"]) == len(entries)
     result["total_chunks"] = len(entries)
+    approved = set(result["approved_chunk_ids"])
+    result["first_pass_approved"] = sum(
+        1 for cid in approved if state.get(cid, {}).get("status") == "approved_initial"
+    )
+    result["revised_approved"] = sum(
+        1 for cid in approved if state.get(cid, {}).get("status") == "approved_revised"
+    )
     return result
 
 
