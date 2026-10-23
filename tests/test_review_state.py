@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -37,6 +38,16 @@ class IndependentReviewTests(unittest.TestCase):
 
     def action(self):
         return review_state.plan(str(self.dir))["chunks"][0]["action"]
+
+    def test_build_requires_independent_review(self):
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPTS / "merge_and_build.py"),
+             "--temp-dir", str(self.dir), "--require-review"],
+            text=True, capture_output=True, check=False,
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("independent review approval required", completed.stderr)
+        self.assertFalse((self.dir / "output.md").exists())
 
     def test_approval_then_translation_edit_invalidates_review(self):
         self.assertEqual(self.action(), "review")
