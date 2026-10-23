@@ -181,6 +181,29 @@ For commercial sponsorship, see [Commercial sponsorship](#commercial-sponsorship
 
 The channel is my running log of thinking alongside AI; the group is its discussion space, and translate-book questions are welcome there too.
 
+## Independent Review and Targeted Revision (fork enhancement)
+
+This fork extends the original parallel translation pipeline with **source-grounded bilingual review**. After translating and merging glossary feedback, an independent sub-agent reviews **each source chunk against its translated chunk**. The translator cannot approve its own work.
+
+- **First pass:** a reviewer writes `review_chunkNNNN.json` with either `pass` and no issues, or `revise` and evidence-backed findings (exact source quote, optional translated quote, severity, explanation, suggested fix).
+- **Targeted revision:** a separate sub-agent fixes only flagged problems in `output_chunkNNNN.md`. It does not rewrite already-correct paragraphs.
+- **Verification:** a fresh reviewer checks revised content and writes `verify_chunkNNNN.json`. If still incorrect, the chunk is **blocked for human handling** rather than retried indefinitely.
+- **Provenance and resume:** `review_state.json` stores source, translation, and report hashes. Changing a translated chunk invalidates its approval; unrelated approved chunks are skipped.
+- **Build gate:** the Skill always passes `--require-review`. The flag is optional for direct script callers to preserve the upstream legacy workflow.
+
+Useful commands:
+
+```bash
+python3 scripts/review_state.py plan book_temp
+python3 scripts/review_state.py record-review book_temp chunk0001
+python3 scripts/review_state.py record-verification book_temp chunk0001   # revised chunks only
+python3 scripts/review_state.py status book_temp
+python3 scripts/review_state.py assert-ready book_temp
+python3 scripts/merge_and_build.py --temp-dir book_temp --require-review
+```
+
+This gate checks the **review workflow and artifact provenance**, not ground-truth translation quality. Accurate semantic review remains the responsibility of the independent reviewer (and a human for high-stakes material).
+
 ## Pipeline Details
 
 ### Step 1: Convert

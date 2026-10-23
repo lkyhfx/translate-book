@@ -181,6 +181,29 @@ Bug 和功能需求请按上一节的要求提 [GitHub issue](https://github.com
 
 频道「婴宁」记录我的见闻，以及和 AI 碰撞出的思考；交流群是它的讨论区，也欢迎来聊 translate-book。
 
+## 独立校对与定点修订（Fork 增强）
+
+本 Fork 在原有并行翻译流程之后加入**对照原文的双语独立校对**：翻译完成并合并术语反馈后，由未参与该块翻译的独立 Agent 对每一个原文块与对应译文进行逐项比对，翻译者不能自我签署通过。
+
+- **首次审校：** Reviewer 输出 `review_chunkNNNN.json`；无问题用 `pass`，发现问题用 `revise`，列出原文精确引文、可选的译文引文、严重程度、问题说明、修复建议。
+- **针对性修订：** 另一个 Agent 只修正明确指出的错误，不重写原本正确的段落。
+- **定点复核：** 独立 Reviewer 复核改后的译文，生成 `verify_chunkNNNN.json`；再次发现错误则标记 `blocked`，交由人工处理，**不自动无限重试**。
+- **状态与断点续译：** `review_state.json` 用原文、译文、审校报告哈希追踪版本；修改过的译文必须重新审核，其余通过审核的块直接复用。
+- **导出门禁：** Skill 默认附带 `--require-review`，防止尚未完成独立校对的文稿被导出。直接使用原始构建脚本时仍可省略该开关以兼容上游行为。
+
+主要命令：
+
+```bash
+python3 scripts/review_state.py plan book_temp
+python3 scripts/review_state.py record-review book_temp chunk0001
+python3 scripts/review_state.py record-verification book_temp chunk0001  # 仅修订过的块
+python3 scripts/review_state.py status book_temp
+python3 scripts/review_state.py assert-ready book_temp
+python3 scripts/merge_and_build.py --temp-dir book_temp --require-review
+```
+
+注意：门禁只能校验**审校流程和文件版本一致性**，不能数学上证明译文准确。高风险专业内容仍应人工抽检或终审。
+
 ## 流程详解
 
 ### 第一步：转换
