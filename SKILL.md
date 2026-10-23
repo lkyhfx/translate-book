@@ -392,23 +392,23 @@ Report any chunks that failed translation after retry.
 
 ### 5.5. Independent Review → Targeted Revision → Verification (required)
 
-**Never treat manifest validation, translation fluency, or glossary merging as semantic review.** Every chunk MUST undergo independent bilingual review by a fresh sub-agent which **did not translate that chunk**. The reviewer must read the original \`chunk<NNNN>.md\` **and** the current \`output_chunk<NNNN>.md\` (plus the applicable glossary, if present). The reviewer must not revise the translation. Complete Step 4/4.5 and the completeness checks in Step 5 before beginning this stage. Review on resume is incremental; do not repeat approved chunks without a hash change.
+**Never treat manifest validation, translation fluency, or glossary merging as semantic review.** Every chunk MUST undergo independent bilingual review by a fresh sub-agent which **did not translate that chunk**. The reviewer must read the original `chunk<NNNN>.md` **and** the current `output_chunk<NNNN>.md` (plus the applicable glossary, if present). The reviewer must not revise the translation. Complete Step 4/4.5 and the completeness checks in Step 5 before beginning this stage. Review on resume is incremental; do not repeat approved chunks without a hash change.
 
 At the start and after each review/revision wave:
 
-\`\`\`bash
+```bash
 python3 {baseDir}/scripts/review_state.py plan "<temp_dir>"
-\`\`\`
+```
 
-The planner returns \`review_chunk_ids\`, \`revision_chunk_ids\`, \`verification_chunk_ids\`, \`approved_chunk_ids\`, \`blocked_chunk_ids\` and \`waiting_for_translation_chunk_ids\`. Do not proceed if any chunk still needs translation; run \`run_state.py plan\` and finish those first. A glossary change can invalidate prior translation and review.
+The planner returns `review_chunk_ids`, `revision_chunk_ids`, `verification_chunk_ids`, `approved_chunk_ids`, `blocked_chunk_ids` and `waiting_for_translation_chunk_ids`. Do not proceed if any chunk still needs translation; run `run_state.py plan` and finish those first. A glossary change can invalidate prior translation and review.
 
-**First review (one fresh reviewer per chunk, parallel up to \`concurrency\`):**
+**First review (one fresh reviewer per chunk, parallel up to `concurrency`):**
 
 - Review source and translation **sentence by sentence** for omission, addition, meaning changes, numbers/units, negation, proper names, technical terms, references, code, formulas, headings, links, and tables. Compare to glossary where relevant. Fluency is secondary to fidelity.
 - Use source-grounded exact quotes. Do not invent errors, and do not make superficial style changes when the existing translation is correct.
-- Save JSON ONLY to \`<temp_dir>/review_chunk<NNNN>.json\`. Never modify the translated Markdown or another chunk. Schema:
+- Save JSON ONLY to `<temp_dir>/review_chunk<NNNN>.json`. Never modify the translated Markdown or another chunk. Schema:
 
-\`\`\`json
+```json
 {
   "version": 1,
   "verdict": "revise",
@@ -423,40 +423,40 @@ The planner returns \`review_chunk_ids\`, \`revision_chunk_ids\`, \`verification
     }
   ]
 }
-\`\`\`
+```
 
-Allowed categories: \`omission\`, \`addition\`, \`mistranslation\`, \`terminology\`, \`numbers\`, \`format\`, \`style\`, \`other\`. Severity: \`major\` or \`minor\`. Every issue needs an **exact source substring**, an exact translation substring if applicable (may be empty for omissions), an explanation, and an actionable fix. If there are no issues, use \`{"version":1,"verdict":"pass","issues":[]}\`. A \`pass\` report cannot contain unresolved issues; a \`revise\` report needs at least one issue. Do not fabricate quotes merely to satisfy the schema.
+Allowed categories: `omission`, `addition`, `mistranslation`, `terminology`, `numbers`, `format`, `style`, `other`. Severity: `major` or `minor`. Every issue needs an **exact source substring**, an exact translation substring if applicable (may be empty for omissions), an explanation, and an actionable fix. If there are no issues, use `{"version":1,"verdict":"pass","issues":[]}`. A `pass` report cannot contain unresolved issues; a `revise` report needs at least one issue. Do not fabricate quotes merely to satisfy the schema.
 
 After each initial reviewer finishes, stamp its independently produced report:
 
-\`\`\`bash
+```bash
 python3 {baseDir}/scripts/review_state.py record-review "<temp_dir>" chunk0001
-\`\`\`
+```
 
 This validates report structure, source-grounded quotations, and the source/draft/review hashes. A report without source evidence is rejected. It **does not** automatically prove semantic accuracy; the reviewer must perform that judgment.
 
 **Targeted revision:**
 
-For \`revision_chunk_ids\`, spawn a **different revision sub-agent**. Give it the exact source, draft translation, applicable glossary, and \`review_chunkNNNN.json\`. Ask it to fix **only** cited problems in \`output_chunkNNNN.md\`; preserve all already-correct text, Markdown structure, mathematical notation, figures, tables, links, and references. Do not regenerate or overwrite \`review_chunkNNNN.json\`. If the issue cannot be resolved from the source, escalate to the user; do not invent missing context or force a passing result.
+For `revision_chunk_ids`, spawn a **different revision sub-agent**. Give it the exact source, draft translation, applicable glossary, and `review_chunkNNNN.json`. Ask it to fix **only** cited problems in `output_chunkNNNN.md`; preserve all already-correct text, Markdown structure, mathematical notation, figures, tables, links, and references. Do not regenerate or overwrite `review_chunkNNNN.json`. If the issue cannot be resolved from the source, escalate to the user; do not invent missing context or force a passing result.
 
 **Focused independent verification (only revised chunks):**
 
-Once the translated output differs from the reviewed draft, the planner places it in \`verification_chunk_ids\`. Launch a fresh reviewer (not the translator or reviser), giving it the source, **revised** target, glossary, and original review findings. Check every cited correction AND scan changes for newly introduced errors. Write \`verify_chunkNNNN.json\` with the **same schema** and record:
+Once the translated output differs from the reviewed draft, the planner places it in `verification_chunk_ids`. Launch a fresh reviewer (not the translator or reviser), giving it the source, **revised** target, glossary, and original review findings. Check every cited correction AND scan changes for newly introduced errors. Write `verify_chunkNNNN.json` with the **same schema** and record:
 
-\`\`\`bash
+```bash
 python3 {baseDir}/scripts/review_state.py record-verification "<temp_dir>" chunk0001
-\`\`\`
+```
 
-A second \`revise\` result becomes \`blocked\` (human escalation), **not an automatic unbounded retry loop**. Never silently label it approved. If the revision did not change the translation file, the gate continues to require a revision. Any later edits to source, translation, or recorded review invalidate the corresponding approval. A stale report cannot approve a newer draft.
+A second `revise` result becomes `blocked` (human escalation), **not an automatic unbounded retry loop**. Never silently label it approved. If the revision did not change the translation file, the gate continues to require a revision. Any later edits to source, translation, or recorded review invalidate the corresponding approval. A stale report cannot approve a newer draft.
 
 **Before building, require the whole book to pass:**
 
-\`\`\`bash
+```bash
 python3 {baseDir}/scripts/review_state.py status "<temp_dir>"
 python3 {baseDir}/scripts/review_state.py assert-ready "<temp_dir>"
-\`\`\`
+```
 
-\`assert-ready\` exits nonzero unless every manifest chunk is independently approved, with current hashes. Report counts of first-pass approvals, revised approvals, and blocked chunks. A new or edited output chunk requires fresh approval. This is a review/provenance gate, not a machine-proven guarantee of perfect translation.
+`assert-ready` exits nonzero unless every manifest chunk is independently approved, with current hashes. Report counts of first-pass approvals, revised approvals, and blocked chunks. A new or edited output chunk requires fresh approval. This is a review/provenance gate, not a machine-proven guarantee of perfect translation.
 
 ### 6. Translate Book Title
 
