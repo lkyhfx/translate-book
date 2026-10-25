@@ -592,6 +592,14 @@ class DisplayMathBlockTests(unittest.TestCase):
         for marker in (note, math, table, "【一】"):
             self.assertEqual(sum(marker in chunk for chunk in chunks), 1)
 
+    def test_oversized_single_paragraph_does_not_orphan_heading(self):
+        content = "# 长章节\n\n" + "连续史文。" * 600
+        chunks = convert.merge_blocks_to_chunks(
+            convert.parse_structural_blocks(content), target_size=300
+        )
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0], content)
+
     def test_oversized_quote_and_math_blocks_stay_intact(self):
         quote = "> " + "注释" * 2000
         formula = "$\n" + "a+b=c\n" * 450 + "$"
