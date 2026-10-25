@@ -1035,7 +1035,7 @@ def main():
     parser.add_argument('--cover', default=None, help='Cover image path for EPUB output')
     parser.add_argument('--export-name', default=None, help='Optional filename stem for exported alias copies')
     parser.add_argument('--cleanup', action='store_true', help='Remove intermediate artifacts after successful build')
-    parser.add_argument('--require-review', action='store_true', help='Abort unless every chunk has fresh independent review approval')
+    parser.add_argument('--require-refinement', action='store_true', help='Abort unless each translated chunk completed its second-pass refinement')
 
     args = parser.parse_args()
     temp_dir = args.temp_dir
@@ -1074,15 +1074,14 @@ def main():
     print(f"Author: {author}")
     print(f"Language: {lang_code} (attr: {lang_cfg['lang_attr']})")
 
-    # Provenance-aware semantic review gate (opt-in for legacy callers).
-    # The skill always passes --require-review. This check precedes cache reuse
-    # and expensive output generation so a stale approval cannot build a book.
-    if args.require_review:
+    # Skill default: require one completed refinement pass per current chunk.
+    # Direct CLI calls may omit the flag for backward compatibility.
+    if args.require_refinement:
         try:
-            from review_state import assert_ready
-            assert_ready(temp_dir)
-        except (ValueError, OSError) as error:
-            print(f"ERROR: independent review approval required: {error}", file=sys.stderr)
+            from run_state import assert_refined
+            assert_refined(temp_dir)
+        except (ValueError, OSError, KeyError) as error:
+            print(f"ERROR: contextual refinement required: {error}", file=sys.stderr)
             sys.exit(1)
 
     # Step 4: Merge

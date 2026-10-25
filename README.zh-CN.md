@@ -40,7 +40,7 @@ Calibre ebook-convert → HTMLZ → HTML → Markdown
 ## 功能特性
 
 - **并行 subagent** — 每批 8 个并发翻译器，各自独立上下文
-- **可续跑 + 精确重译** — chunk 级续跑，并用 `run_state.json` 追踪受术语表影响的重译范围
+- **可续跑 + 两轮翻译** — chunk 级续跑；术语表变化优先触发第二轮针对性修订，不重复首次翻译
 - **邻居上下文** — 每个 chunk 可读取相邻 chunk 的短只读摘录，用于代词和实体判断
 - **Manifest 校验** — SHA-256 hash 追踪，防止过时或损坏的输出被合并
 - **多格式输出** — HTML（含浮动目录）、DOCX、EPUB、PDF
@@ -181,28 +181,26 @@ Bug 和功能需求请按上一节的要求提 [GitHub issue](https://github.com
 
 频道「婴宁」记录我的见闻，以及和 AI 碰撞出的思考；交流群是它的讨论区，也欢迎来聊 translate-book。
 
-## 独立校对与定点修订（Fork 增强）
+## 双轮翻译：整块评估与直接修订（Fork 增强）
 
-本 Fork 在原有并行翻译流程之后加入**对照原文的双语独立校对**：翻译完成并合并术语反馈后，由未参与该块翻译的独立 Agent 对每一个原文块与对应译文进行逐项比对，翻译者不能自我签署通过。
+这个 Fork 改为**每个 Chunk 最多两次 LLM 调用**：首次翻译；第二个全新 Agent 在同一个上下文中读取原文、首次译文、术语表，对整个 Chunk 进行一次整体评估，并且直接修复实质性错误。不再要求逐句输出审校清单。
 
-- **首次审校：** Reviewer 输出 `review_chunkNNNN.json`；无问题用 `pass`，发现问题用 `revise`，列出原文精确引文、可选的译文引文、严重程度、问题说明、修复建议。
-- **针对性修订：** 另一个 Agent 只修正明确指出的错误，不重写原本正确的段落。
-- **定点复核：** 独立 Reviewer 复核改后的译文，生成 `verify_chunkNNNN.json`；再次发现错误则标记 `blocked`，交由人工处理，**不自动无限重试**。
-- **状态与断点续译：** `review_state.json` 用原文、译文、审校报告哈希追踪版本；修改过的译文必须重新审核，其余通过审核的块直接复用。
-- **导出门禁：** Skill 默认附带 `--require-review`，防止尚未完成独立校对的文稿被导出。直接使用原始构建脚本时仍可省略该开关以兼容上游行为。
-
-主要命令：
+- **首次译文已经忠实：** 完全不修改 `output_chunkNNNN.md`。
+- **存在实质性偏差：** 第二个 Agent 直接修正同一译文文件；优先局部改动，不强制全文重译。
+- **没有审校 JSON、没有第三个复核 Agent**，只向调度者返回简短完成消息。
+- **恢复执行：** 第二轮完成状态直接写入已有 `run_state.json`，保留首次翻译的术语版本快照，避免术语变化被误判为已完成。
+- **最终导出：** Skill 默认使用 `--require-refinement`，同时保留原有的 manifest、图片引用和结构校验；直接调用导出脚本时可以省略该选项兼容旧工作流。
 
 ```bash
-python3 scripts/review_state.py plan book_temp
-python3 scripts/review_state.py record-review book_temp chunk0001
-python3 scripts/review_state.py record-verification book_temp chunk0001  # 仅修订过的块
-python3 scripts/review_state.py status book_temp
-python3 scripts/review_state.py assert-ready book_temp
-python3 scripts/merge_and_build.py --temp-dir book_temp --require-review
+python3 scripts/run_state.py refine-plan book_temp
+# 第二轮 Agent 对照原文与译文，有实质错误才直接改写 output_chunk0001.md
+python3 scripts/run_state.py refine-record book_temp chunk0001
+python3 scripts/run_state.py refine-status book_temp
+python3 scripts/run_state.py assert-refined book_temp
+python3 scripts/merge_and_build.py --temp-dir book_temp --require-refinement
 ```
 
-注意：门禁只能校验**审校流程和文件版本一致性**，不能数学上证明译文准确。高风险专业内容仍应人工抽检或终审。
+第二轮旨在提高忠实度，并不保证零错误；高风险文献仍建议人工复核。
 
 ## 流程详解
 
@@ -257,7 +255,7 @@ python3 scripts/convert.py paper.md --olang zh
 
 已有的 v1 `glossary.json` 会在首次加载时自动升级为 v2。v2 禁止同一个表面词（原文或别名）同时归属于两个不同术语；如果 v1 文件存在同名（polysemous）的重复 source，升级会终止并给出消歧提示 — 手工修复后重新加载即可。
 
-可在两次运行之间编辑 `glossary.json` 修正译法。已存在的 `glossary.json` 不会被覆盖 — 删除它才会重建。`scripts/run_state.py` 会记录每个 chunk 用到的术语表状态，因此后续术语表变化（包括 `target`、`category`、`aliases` 的编辑）只会重译受影响的 chunk（前提是该 chunk 已写入 run_state）。
+可在两次运行之间编辑 `glossary.json` 修正译法。已存在的 `glossary.json` 不会被覆盖 — 删除它才会重建。`scripts/run_state.py` 会记录每个 chunk 用到的术语表状态，因此后续术语表变化（包括 `target`、`category`、`aliases` 的编辑）只会让受影响的 chunk 进入第二轮修订（前提是该 chunk 已写入 run_state）。
 
 ### 第二步：翻译（并行 subagent）
 
@@ -305,7 +303,7 @@ python3 scripts/merge_and_build.py --temp-dir book_temp --title "《译后书名
 | `scripts/chunk_context.py` | 为 subagent prompt 提供上一/下一 chunk 的只读摘录 |
 | `scripts/meta.py` | 子 agent 单 chunk 观察文件 schema（`output_chunkNNNN.meta.json`） |
 | `scripts/merge_meta.py` | 批次边界合并：子 agent 观察 → canonical 术语表 |
-| `scripts/run_state.py` | 精确重译规划器和 `run_state.json` 记录器 |
+| `scripts/run_state.py` | 首次翻译与第二轮修订的状态规划、术语追踪和断点续跑 |
 | `scripts/merge_and_build.py` | 合并 chunks → HTML → DOCX/EPUB/PDF |
 | `scripts/calibre_html_publish.py` | Calibre 格式转换封装 |
 | `scripts/template.html` | 网页 HTML 模板，含浮动目录 |

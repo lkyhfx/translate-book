@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -130,8 +131,8 @@ class RunStateTests(unittest.TestCase):
             )
             plan = run_state.plan(str(temp_dir))
 
-        self.assertIn("chunk0001", plan["translation_chunk_ids"])
-        self.assertNotIn("chunk0002", plan["translation_chunk_ids"])
+        self.assertIn("chunk0001", plan["refinement_chunk_ids"])
+        self.assertNotIn("chunk0002", plan["refinement_chunk_ids"])
 
     def test_alias_change_on_selected_term_needs_translation(self):
         # chunk0001 contains the source "Tai", so the term is already selected
@@ -150,8 +151,8 @@ class RunStateTests(unittest.TestCase):
                 item["chunk_id"]: item["reasons"] for item in plan["chunks"]
             }
 
-        self.assertIn("chunk0001", plan["translation_chunk_ids"])
-        self.assertNotIn("chunk0002", plan["translation_chunk_ids"])
+        self.assertIn("chunk0001", plan["refinement_chunk_ids"])
+        self.assertNotIn("chunk0002", plan["refinement_chunk_ids"])
         self.assertTrue(
             any(
                 isinstance(r, dict) and r.get("code") == "glossary_term_hash_changed"
@@ -177,7 +178,7 @@ class RunStateTests(unittest.TestCase):
             )
             plan = run_state.plan(str(temp_dir))
 
-        self.assertEqual(plan["translation_chunk_ids"], ["chunk0001"])
+        self.assertEqual(plan["refinement_chunk_ids"], ["chunk0001"])
 
     def test_output_hash_change_is_record_only(self):
         tmp, temp_dir = self._workspace()
@@ -199,6 +200,90 @@ class RunStateTests(unittest.TestCase):
         self.assertIn("glossary_version_used", record)
         self.assertEqual(record["entity_ids_used"], ["Tai"])
         self.assertIn("output_hash", record)
+
+
+    def test_refinement_is_recorded_without_changing_correct_translation(self):
+        tmp, temp_dir = self._workspace()
+        with tmp:
+            run_state.record_chunks(str(temp_dir), ["chunk0001", "chunk0002"])
+            self.assertEqual(
+                run_state.refinement_plan(str(temp_dir))["refinement_chunk_ids"],
+                ["chunk0001", "chunk0002"],
+            )
+            run_state.record_refinement(str(temp_dir), ["chunk0001", "chunk0002"])
+            self.assertTrue(run_state.assert_refined(str(temp_dir))["ready"])
+            self.assertEqual(
+                run_state.refinement_plan(str(temp_dir))["refinement_chunk_ids"], []
+            )
+
+    def test_changed_refined_output_needs_only_second_pass_again(self):
+        tmp, temp_dir = self._workspace()
+        with tmp:
+            run_state.record_chunks(str(temp_dir), ["chunk0001", "chunk0002"])
+            run_state.record_refinement(str(temp_dir), ["chunk0001", "chunk0002"])
+            self._write(temp_dir / "output_chunk0001.md", "太一平安归家。\n")
+            self.assertEqual(
+                run_state.refinement_plan(str(temp_dir))["refinement_chunk_ids"],
+                ["chunk0001"],
+            )
+            with self.assertRaises(ValueError):
+                run_state.assert_refined(str(temp_dir))
+            run_state.record_refinement(str(temp_dir), ["chunk0001"])
+            self.assertTrue(run_state.assert_refined(str(temp_dir))["ready"])
+
+    def test_glossary_changes_invalidate_first_pass_after_refinement(self):
+        tmp, temp_dir = self._workspace()
+        with tmp:
+            run_state.record_chunks(str(temp_dir), ["chunk0001", "chunk0002"])
+            run_state.record_refinement(str(temp_dir), ["chunk0001", "chunk0002"])
+            self._write(
+                temp_dir / "glossary.json",
+                json.dumps(glossary_doc(target="泰"), ensure_ascii=False),
+            )
+            result = run_state.refinement_plan(str(temp_dir))
+            self.assertEqual(result["refinement_chunk_ids"], ["chunk0001"])
+            self.assertEqual(result["refined_chunk_ids"], ["chunk0002"])
+            # The second pass incorporates the new glossary rather than redoing
+            # the first pass. It also makes the final glossary snapshot current.
+            run_state.record_refinement(str(temp_dir), ["chunk0001"])
+            self.assertTrue(run_state.assert_refined(str(temp_dir))["ready"])
+            self.assertNotIn(
+                "chunk0001", run_state.plan(str(temp_dir))["translation_chunk_ids"]
+            )
+
+    def test_new_first_pass_invalidates_old_refinement(self):
+        tmp, temp_dir = self._workspace()
+        with tmp:
+            run_state.record_chunks(str(temp_dir), ["chunk0001", "chunk0002"])
+            run_state.record_refinement(str(temp_dir), ["chunk0001", "chunk0002"])
+            run_state.record_chunks(str(temp_dir), ["chunk0001"])
+            self.assertEqual(
+                run_state.refinement_plan(str(temp_dir))["refinement_chunk_ids"],
+                ["chunk0001"],
+            )
+
+    def test_build_refuses_to_export_before_second_pass(self):
+        tmp, temp_dir = self._workspace()
+        with tmp:
+            run_state.record_chunks(str(temp_dir), ["chunk0001", "chunk0002"])
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT_DIR / "merge_and_build.py"),
+                 "--temp-dir", str(temp_dir), "--require-refinement"],
+                text=True, capture_output=True, check=False,
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("contextual refinement required", proc.stderr)
+            self.assertFalse((temp_dir / "output.md").exists())
+
+    def test_refinement_rejects_untracked_and_missing_source(self):
+        tmp, temp_dir = self._workspace()
+        with tmp:
+            with self.assertRaises(ValueError):
+                run_state.record_refinement(str(temp_dir), ["chunk0001"])
+            run_state.record_chunks(str(temp_dir), ["chunk0001"])
+            self._write(temp_dir / "chunk0001.md", "changed")
+            with self.assertRaises(ValueError):
+                run_state.record_refinement(str(temp_dir), ["chunk0001"])
 
 
 if __name__ == "__main__":

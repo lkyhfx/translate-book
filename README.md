@@ -40,7 +40,7 @@ Each chunk gets its own independent subagent with a fresh context window. This p
 ## Features
 
 - **Parallel subagents** — 8 concurrent translators per batch, each with isolated context
-- **Resumable + selective re-translation** — chunk-level resume, with `run_state.json` tracking glossary-sensitive re-translation
+- **Resumable two-pass translation** — chunk-level resume; glossary edits trigger targeted second-pass correction instead of an extra first-pass translation
 - **Neighbor context** — each chunk can see short read-only excerpts from adjacent chunks for pronoun and entity resolution
 - **Manifest validation** — SHA-256 hash tracking prevents stale or corrupt outputs from being merged
 - **Multi-format output** — HTML (with floating TOC), DOCX, EPUB, PDF
@@ -181,28 +181,26 @@ For commercial sponsorship, see [Commercial sponsorship](#commercial-sponsorship
 
 The channel is my running log of thinking alongside AI; the group is its discussion space, and translate-book questions are welcome there too.
 
-## Independent Review and Targeted Revision (fork enhancement)
+## Two-Pass Translation: Contextual Refinement (fork enhancement)
 
-This fork extends the original parallel translation pipeline with **source-grounded bilingual review**. After translating and merging glossary feedback, an independent sub-agent reviews **each source chunk against its translated chunk**. The translator cannot approve its own work.
+This fork uses **at most two LLM calls per chunk**: initial translation, followed by a fresh agent that sees the source, translation, and glossary together and decides whether the translation needs correction. The second agent works on the **whole chunk in a single context** rather than generating sentence-by-sentence review JSON.
 
-- **First pass:** a reviewer writes `review_chunkNNNN.json` with either `pass` and no issues, or `revise` and evidence-backed findings (exact source quote, optional translated quote, severity, explanation, suggested fix).
-- **Targeted revision:** a separate sub-agent fixes only flagged problems in `output_chunkNNNN.md`. It does not rewrite already-correct paragraphs.
-- **Verification:** a fresh reviewer checks revised content and writes `verify_chunkNNNN.json`. If still incorrect, the chunk is **blocked for human handling** rather than retried indefinitely.
-- **Provenance and resume:** `review_state.json` stores source, translation, and report hashes. Changing a translated chunk invalidates its approval; unrelated approved chunks are skipped.
-- **Build gate:** the Skill always passes `--require-review`. The flag is optional for direct script callers to preserve the upstream legacy workflow.
-
-Useful commands:
+- **Good first draft:** leave `output_chunkNNNN.md` completely unchanged.
+- **Errors found:** directly fix the mistranslation or omission in the same output file. Preserve correct passages; do not automatically rewrite the whole chunk.
+- **No separate issue list or third-pass reviewer.** Only a short completion signal is returned to the orchestrator.
+- **Resume:** `run_state.json` records the second pass's output/source hashes without resetting the first pass's glossary provenance. Only changed/unprocessed chunks receive another second pass.
+- **Export:** the Skill uses `--require-refinement`; existing deterministic manifest and image checks still run. Direct calls may omit the flag for compatibility.
 
 ```bash
-python3 scripts/review_state.py plan book_temp
-python3 scripts/review_state.py record-review book_temp chunk0001
-python3 scripts/review_state.py record-verification book_temp chunk0001   # revised chunks only
-python3 scripts/review_state.py status book_temp
-python3 scripts/review_state.py assert-ready book_temp
-python3 scripts/merge_and_build.py --temp-dir book_temp --require-review
+python3 scripts/run_state.py refine-plan book_temp
+# A fresh agent compares the source + draft + glossary, and edits output_chunk0001.md only if needed
+python3 scripts/run_state.py refine-record book_temp chunk0001
+python3 scripts/run_state.py refine-status book_temp
+python3 scripts/run_state.py assert-refined book_temp
+python3 scripts/merge_and_build.py --temp-dir book_temp --require-refinement
 ```
 
-This gate checks the **review workflow and artifact provenance**, not ground-truth translation quality. Accurate semantic review remains the responsibility of the independent reviewer (and a human for high-stakes material).
+The second pass is a best-effort quality improvement, not a guarantee of correctness; use human review for high-stakes translations.
 
 ## Pipeline Details
 
@@ -257,7 +255,7 @@ Each chunk is translated by a fresh-context sub-agent, which means the same prop
 
 Existing v1 `glossary.json` files are auto-upgraded to v2 on first load. v2 forbids the same surface form (source or alias) appearing in two different terms; if a v1 file has polysemous duplicate sources, the upgrade aborts with a disambiguation message — fix the file by hand and reload.
 
-Edit `glossary.json` between runs to fix translations; existing `glossary.json` is never overwritten — delete it to rebuild from scratch. `scripts/run_state.py` records which glossary terms each chunk used, so later glossary changes (including `target`, `category`, and `aliases` edits) only re-translate affected chunks after the state has been recorded.
+Edit `glossary.json` between runs to fix translations; existing `glossary.json` is never overwritten — delete it to rebuild from scratch. `scripts/run_state.py` records which glossary terms each chunk used, so later glossary changes (including `target`, `category`, and `aliases` edits) route only affected chunks to contextual refinement.
 
 ### Step 2: Translate (parallel subagents)
 
@@ -305,7 +303,7 @@ Then: merge → Pandoc HTML → inject TOC → Calibre generates DOCX, EPUB, PDF
 | `scripts/chunk_context.py` | Read-only previous/next chunk excerpts for sub-agent prompts |
 | `scripts/meta.py` | Per-chunk sub-agent observation file schema (`output_chunkNNNN.meta.json`) |
 | `scripts/merge_meta.py` | Batch-boundary merge: sub-agent observations → canonical glossary |
-| `scripts/run_state.py` | Selective re-translation planner and `run_state.json` recorder |
+| `scripts/run_state.py` | Source/glossary provenance, two-pass refinement and resumable chunk planner |
 | `scripts/merge_and_build.py` | Merge chunks → HTML → DOCX/EPUB/PDF |
 | `scripts/calibre_html_publish.py` | Calibre wrapper for format conversion |
 | `scripts/template.html` | Web HTML template with floating TOC |
