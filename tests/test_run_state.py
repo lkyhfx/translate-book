@@ -201,5 +201,71 @@ class RunStateTests(unittest.TestCase):
         self.assertIn("output_hash", record)
 
 
+    def test_refinement_is_recorded_without_changing_correct_translation(self):
+        tmp, temp_dir = self._workspace()
+        with tmp:
+            run_state.record_chunks(str(temp_dir), ["chunk0001", "chunk0002"])
+            self.assertEqual(
+                run_state.refinement_plan(str(temp_dir))["refinement_chunk_ids"],
+                ["chunk0001", "chunk0002"],
+            )
+            run_state.record_refinement(str(temp_dir), ["chunk0001", "chunk0002"])
+            self.assertTrue(run_state.assert_refined(str(temp_dir))["ready"])
+            self.assertEqual(
+                run_state.refinement_plan(str(temp_dir))["refinement_chunk_ids"], []
+            )
+
+    def test_changed_refined_output_needs_only_second_pass_again(self):
+        tmp, temp_dir = self._workspace()
+        with tmp:
+            run_state.record_chunks(str(temp_dir), ["chunk0001", "chunk0002"])
+            run_state.record_refinement(str(temp_dir), ["chunk0001", "chunk0002"])
+            self._write(temp_dir / "output_chunk0001.md", "太一平安归家。\n")
+            self.assertEqual(
+                run_state.refinement_plan(str(temp_dir))["refinement_chunk_ids"],
+                ["chunk0001"],
+            )
+            with self.assertRaises(ValueError):
+                run_state.assert_refined(str(temp_dir))
+            run_state.record_refinement(str(temp_dir), ["chunk0001"])
+            self.assertTrue(run_state.assert_refined(str(temp_dir))["ready"])
+
+    def test_glossary_changes_invalidate_first_pass_after_refinement(self):
+        tmp, temp_dir = self._workspace()
+        with tmp:
+            run_state.record_chunks(str(temp_dir), ["chunk0001", "chunk0002"])
+            run_state.record_refinement(str(temp_dir), ["chunk0001", "chunk0002"])
+            self._write(
+                temp_dir / "glossary.json",
+                json.dumps(glossary_doc(target="泰"), ensure_ascii=False),
+            )
+            result = run_state.refinement_plan(str(temp_dir))
+            self.assertEqual(result["waiting_for_translation_chunk_ids"], ["chunk0001"])
+            self.assertEqual(result["refined_chunk_ids"], ["chunk0002"])
+            with self.assertRaises(ValueError):
+                run_state.record_refinement(str(temp_dir), ["chunk0001"])
+
+    def test_new_first_pass_invalidates_old_refinement(self):
+        tmp, temp_dir = self._workspace()
+        with tmp:
+            run_state.record_chunks(str(temp_dir), ["chunk0001", "chunk0002"])
+            run_state.record_refinement(str(temp_dir), ["chunk0001", "chunk0002"])
+            run_state.record_chunks(str(temp_dir), ["chunk0001"])
+            self.assertEqual(
+                run_state.refinement_plan(str(temp_dir))["refinement_chunk_ids"],
+                ["chunk0001"],
+            )
+
+    def test_refinement_rejects_untracked_and_missing_source(self):
+        tmp, temp_dir = self._workspace()
+        with tmp:
+            with self.assertRaises(ValueError):
+                run_state.record_refinement(str(temp_dir), ["chunk0001"])
+            run_state.record_chunks(str(temp_dir), ["chunk0001"])
+            self._write(temp_dir / "chunk0001.md", "changed")
+            with self.assertRaises(ValueError):
+                run_state.record_refinement(str(temp_dir), ["chunk0001"])
+
+
 if __name__ == "__main__":
     unittest.main()
