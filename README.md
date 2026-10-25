@@ -65,14 +65,14 @@ Each chunk gets its own independent subagent with a fresh context window. This p
 #### Codex
 
 ```bash
-npx skills add deusyu/translate-book -a codex -g
+npx skills add lkyhfx/translate-book -a codex -g
 ```
 
 Or install it manually:
 
 ```bash
 mkdir -p ~/.agents/skills
-git clone https://github.com/deusyu/translate-book.git ~/.agents/skills/translate-book
+git clone https://github.com/lkyhfx/translate-book.git ~/.agents/skills/translate-book
 ```
 
 Restart Codex if the newly installed skill does not appear.
@@ -80,14 +80,14 @@ Restart Codex if the newly installed skill does not appear.
 #### Claude Code
 
 ```bash
-npx skills add deusyu/translate-book -a claude-code -g
+npx skills add lkyhfx/translate-book -a claude-code -g
 ```
 
 Or install it manually:
 
 ```bash
 mkdir -p ~/.claude/skills
-git clone https://github.com/deusyu/translate-book.git ~/.claude/skills/translate-book
+git clone https://github.com/lkyhfx/translate-book.git ~/.claude/skills/translate-book
 ```
 
 #### OpenClaw
@@ -95,6 +95,10 @@ git clone https://github.com/deusyu/translate-book.git ~/.claude/skills/translat
 ```bash
 openclaw skills install @deusyu/translate-book
 ```
+
+Note: the ClawHub package above is the upstream release; the offline-reader fork enhancements are in `lkyhfx/translate-book` on GitHub.
+
+
 
 ### 2. Translate a book
 
