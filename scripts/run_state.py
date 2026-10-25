@@ -306,6 +306,73 @@ def status(temp_dir):
     }
 
 
+def refinement_plan(temp_dir):
+    """Plan one contextual comparison-and-revision pass per translated chunk."""
+    translation = plan(temp_dir)
+    entries = _chunk_entries_from_manifest(temp_dir)
+    records = load_run_state(temp_dir)["chunks"]
+    waiting = set(translation["translation_chunk_ids"])
+    result = {"refinement_chunk_ids": [], "refined_chunk_ids": [],
+              "waiting_for_translation_chunk_ids": []}
+    for entry in entries:
+        cid = entry["id"]
+        record = records.get(cid)
+        original = os.path.join(temp_dir, entry["source_file"])
+        output = os.path.join(temp_dir, entry["output_file"])
+        if cid in waiting or record is None or not os.path.isfile(output):
+            key = "waiting_for_translation_chunk_ids"
+        elif not (read_output_text(output) or "").strip():
+            key = "waiting_for_translation_chunk_ids"
+        elif (record.get("refined_source_hash") == file_hash(original)
+              and record.get("refined_output_hash") == file_hash(output)):
+            key = "refined_chunk_ids"
+        else:
+            key = "refinement_chunk_ids"
+        result[key].append(cid)
+    result["total_chunks"] = len(entries)
+    result["ready"] = len(result["refined_chunk_ids"]) == len(entries) and bool(entries)
+    return result
+
+
+def record_refinement(temp_dir, chunk_ids):
+    """Mark completed refinement; preserve the first-pass glossary snapshot."""
+    entries = {e["id"]: e for e in _chunk_entries_from_manifest(temp_dir)}
+    state = load_run_state(temp_dir)
+    invalidated = set(plan(temp_dir)["translation_chunk_ids"])
+    changes = {}
+    for cid in chunk_ids:
+        if cid not in entries or cid in invalidated or cid not in state["chunks"]:
+            raise ValueError(f"Missing/stale first-pass translation: {cid}")
+        entry = entries[cid]
+        source = os.path.join(temp_dir, entry["source_file"])
+        target = os.path.join(temp_dir, entry["output_file"])
+        if not os.path.isfile(source) or not os.path.isfile(target):
+            raise ValueError(f"Missing source or translation: {cid}")
+        if not (read_output_text(target) or "").strip():
+            raise ValueError(f"Blank or unreadable refinement: {cid}")
+        if state["chunks"][cid]["source_hash"] != file_hash(source):
+            raise ValueError(f"Source changed: {cid}")
+        changes[cid] = (file_hash(source), file_hash(target))
+    for cid, (src_hash, out_hash) in changes.items():
+        record = state["chunks"][cid]
+        record["refined_source_hash"] = src_hash
+        record["refined_output_hash"] = out_hash
+        record["output_hash"] = out_hash
+        record["refined_at"] = _now_utc()
+    save_run_state(temp_dir, state)
+    return {"refined_chunk_ids": list(changes)}
+
+
+def assert_refined(temp_dir):
+    result = refinement_plan(temp_dir)
+    if not result["ready"]:
+        raise ValueError("Refinement incomplete: " + json.dumps({
+            "refinement_needed": result["refinement_chunk_ids"],
+            "translation_needed": result["waiting_for_translation_chunk_ids"],
+        }, ensure_ascii=False))
+    return {"ready": True, "refined_chunks": result["total_chunks"]}
+
+
 def _print_json(data):
     print(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True))
 
@@ -332,6 +399,12 @@ def main():
     p_status = sub.add_parser('status', help="Show run_state progress summary")
     p_status.add_argument('temp_dir')
 
+    for cmd in ("refine-plan", "refine-status", "assert-refined"):
+        sub.add_parser(cmd).add_argument("temp_dir")
+    p_refine = sub.add_parser("refine-record")
+    p_refine.add_argument("temp_dir")
+    p_refine.add_argument("chunk_ids", nargs="+")
+
     args = parser.parse_args()
 
     try:
@@ -348,6 +421,15 @@ def main():
             _print_json({"recorded_chunk_ids": record_chunks(args.temp_dir, eligible)})
         elif args.cmd == 'status':
             _print_json(status(args.temp_dir))
+        elif args.cmd == 'refine-plan':
+            _print_json(refinement_plan(args.temp_dir))
+        elif args.cmd == 'refine-status':
+            _print_json({k: len(v) if k.endswith("_chunk_ids") else v
+                         for k, v in refinement_plan(args.temp_dir).items()})
+        elif args.cmd == 'refine-record':
+            _print_json(record_refinement(args.temp_dir, args.chunk_ids))
+        elif args.cmd == 'assert-refined':
+            _print_json(assert_refined(args.temp_dir))
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
