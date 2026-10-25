@@ -536,6 +536,16 @@ class DisplayMathBlockTests(unittest.TestCase):
         self.assertTrue(chunks[1].startswith("# 第二章"))
         self.assertEqual("\n".join(chunks), content)
 
+    def test_consecutive_peer_chapters_keep_their_boundary(self):
+        content = "# 纪一\n\n# 纪二\n\n" + "正文。" * 100
+        chunks = convert.merge_blocks_to_chunks(
+            convert.parse_structural_blocks(content), target_size=12000
+        )
+        self.assertEqual(len(chunks), 2)
+        self.assertTrue(chunks[0].startswith("# 纪一"))
+        self.assertTrue(chunks[1].startswith("# 纪二"))
+        self.assertEqual("\n".join(chunks), content)
+
     def test_second_level_heading_prefers_full_enough_boundary(self):
         content = "前。" * 420 + "\n\n## 新节\n\n" + "后。" * 100
         chunks = convert.merge_blocks_to_chunks(
