@@ -43,7 +43,7 @@ Each chunk gets its own independent subagent with a fresh context window. This p
 - **Resumable two-pass translation** — chunk-level resume; glossary edits trigger targeted second-pass correction instead of an extra first-pass translation
 - **Neighbor context** — each chunk can see short read-only excerpts from adjacent chunks for pronoun and entity resolution
 - **Manifest validation** — SHA-256 hash tracking prevents stale or corrupt outputs from being merged
-- **Multi-format output** — HTML (with floating TOC), DOCX, EPUB, PDF
+- **Multi-format output** — offline single-file HTML reader with chapter-on-demand mounting, notes popovers, font/size/**weight** controls and pure-white/warm-white/sepia/dark themes; DOCX, EPUB, PDF retain full static source
 - **Optional output controls** — explicit EPUB cover, custom temp root, and user-facing export aliases
 - **Multi-language** — zh, en, ja, ko, fr, de, es (extensible)
 - **PDF/DOCX/EPUB/Markdown input** — Calibre handles the conversion heavy lifting; formula- and table-heavy PDFs can be pre-extracted to Markdown with MinerU or Marker
@@ -55,7 +55,7 @@ Each chunk gets its own independent subagent with a fresh context window. This p
 - **Pandoc** — for HTML↔Markdown conversion ([download](https://pandoc.org/))
 - **Python 3** with:
   - `pypandoc` — required (`pip install pypandoc`)
-  - `beautifulsoup4` — optional, for better TOC generation (`pip install beautifulsoup4`)
+  - `beautifulsoup4` — **required for the offline HTML reader** (`pip install beautifulsoup4`)
 - **MinerU or Marker** — optional, only to pre-extract formula- and table-heavy PDFs to Markdown (see [Step 1](#step-1-convert))
 
 ## Quick Start
@@ -131,7 +131,7 @@ All files are in `{book_name}_temp/`:
 | File | Description |
 |------|-------------|
 | `output.md` | Merged translated Markdown |
-| `book.html` | Web version with floating TOC |
+| `book.html` | Standalone offline chapter reader: TOC, annotation popovers, font/size/weight, four themes |
 | `book.docx` | Word document |
 | `book.epub` | E-book |
 | `book.pdf` | Print-ready PDF |
@@ -201,6 +201,32 @@ python3 scripts/merge_and_build.py --temp-dir book_temp --require-refinement
 ```
 
 The second pass is a best-effort quality improvement, not a guarantee of correctness; use human review for high-stakes translations.
+
+## Interactive offline reader (`book.html`)
+
+The generated `book.html` is **one self-contained file** with embedded chapter
+content, CSS, JavaScript, annotations and local images. Open it directly from
+disk; no server or network connection is needed. A table of contents navigates
+to chapters without loading all chapter DOM at once. Use previous/next chapter
+controls, and click citation superscripts to view notes via native Popover API
+(with a fallback).
+
+Reading settings persist per book (localStorage, when available):
+- **Font**: Song, FangSong, Kai or sans-serif; **font size**: 14–30 px.
+- **Font weight**: 300, 400, 500, 600 or 700 (actual appearance depends on
+  installed fonts and available weights).
+- **Themes**: warm white, **pure white (#FFFFFF)**, sepia and dark.
+
+Pandoc footnotes/endnotes and explicit matching classical annotation markers
+(e.g. `【一】`) are turned into clickable notes; ambiguous/unmatched markers
+remain visible rather than being guessed. Inline images from the book's local
+`images/` folder are embedded into the HTML. Pages with very long chapters
+can be divided into navigable subsections for responsive display.
+
+`book_doc.html` is **intentionally static** and continues to be the source
+for DOCX, EPUB and PDF generation. Note: single-file HTML still reads the
+whole file into browser memory; the improvement is mounting one chapter in
+the rendered DOM, not fetching chapters over the network.
 
 ## Pipeline Details
 
