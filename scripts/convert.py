@@ -794,15 +794,58 @@ def parse_structural_blocks(content):
     return blocks
 
 
-def merge_blocks_to_chunks(blocks, target_size=6000):
-    """Merge structural blocks into chunks respecting target_size.
+DEFAULT_CHUNK_SIZE = 12000
+CHUNKING_STRATEGY_VERSION = 2
+CHUNKING_CONFIG_FILE = "chunking_config.json"
 
-    Prefers to split at heading boundaries. Never splits within a single
-    structural block unless the block itself exceeds target_size * 2.
+
+def _chunk_units(blocks):
+    """Keep a heading and its first substantive block together.
+
+    A standalone heading is a poor unit for a translation subagent. Consecutive
+    headings and intervening blank lines belong with the following paragraph
+    (or other first structural block), not in an orphaned chunk.
     """
+    i = 0
+    while i < len(blocks):
+        text, kind = blocks[i]
+        if kind != 'heading':
+            yield text, kind, None, kind
+            i += 1
+            continue
+
+        level = len(text.lstrip().split(' ', 1)[0])
+        parts = [text]
+        i += 1
+        while i < len(blocks) and (
+            blocks[i][1] == 'heading' or not blocks[i][0].strip()
+        ):
+            parts.append(blocks[i][0])
+            i += 1
+        lead_type = None
+        if i < len(blocks):
+            lead_type = blocks[i][1]
+            parts.append(blocks[i][0])
+            i += 1
+        yield '\n'.join(parts), 'heading', level, lead_type
+
+
+def merge_blocks_to_chunks(blocks, target_size=DEFAULT_CHUNK_SIZE):
+    """Pack structural blocks into fewer coherent chunks.
+
+    Target size is a *soft* limit. The 1.5x hard target is a best-effort
+    ceiling; we keep tables, math, blockquotes and code intact even if larger.
+    H1 is a chapter boundary. H2 may split an already useful chunk, but H3+
+    must not make tiny chunks. Attach headings to first content before packing.
+    """
+    if target_size < 1:
+        raise ValueError("target_size must be positive")
+
     chunks = []
     current_parts = []
     current_size = 0
+    min_fill = max(1, int(target_size * 0.60))
+    max_size = max(target_size, int(target_size * 1.50))
 
     def flush():
         nonlocal current_parts, current_size
@@ -811,27 +854,37 @@ def merge_blocks_to_chunks(blocks, target_size=6000):
             current_parts = []
             current_size = 0
 
-    for text, btype in blocks:
+    for text, kind, heading_level, lead_type in _chunk_units(blocks):
         block_size = len(text)
-
-        # If a single block is oversized, handle degradation
-        if block_size > target_size * 2:
+        # Never truncate or split structural units whose internal integrity
+        # matters for book translation (especially Pei Songzhi's blockquotes).
+        protected = (
+            kind in ('math_block', 'table', 'blockquote', 'code_block')
+            or (kind == 'heading' and lead_type in
+                ('math_block', 'table', 'blockquote', 'code_block'))
+        )
+        if block_size > max_size and not protected:
             flush()
-            print(f"  WARNING: Oversized {btype} block ({block_size} chars), force-splitting")
+            print(f"  WARNING: Oversized {kind} unit ({block_size} chars); splitting")
             sub_chunks = _force_split_block(text, target_size)
             chunks.extend(sub_chunks)
             continue
 
-        # Prefer to split at heading boundaries
-        if btype == 'heading' and current_size > 0:
-            flush()
+        # True chapter boundaries stay separate. H2 is a preferred boundary
+        # only when the current unit is substantial. Subheadings can merge.
+        if kind == 'heading' and current_parts:
+            if heading_level == 1 or (heading_level == 2 and current_size >= min_fill):
+                flush()
 
-        # Would adding this block exceed target?
-        if current_size + block_size > target_size and current_parts:
+        prospective = current_size + block_size + (1 if current_parts else 0)
+        if current_parts and (
+            prospective > max_size
+            or (prospective > target_size and current_size >= min_fill)
+        ):
             flush()
 
         current_parts.append(text)
-        current_size += block_size
+        current_size += block_size + (1 if current_size else 0)
 
     flush()
     return chunks
@@ -906,7 +959,7 @@ def _force_split_block(text, target_size):
     return chunks
 
 
-def split_markdown_structured(md_file, temp_dir, target_size=6000):
+def split_markdown_structured(md_file, temp_dir, target_size=DEFAULT_CHUNK_SIZE):
     """Split markdown into structural chunks.
 
     Returns list of chunk filenames (e.g. ['chunk0001.md', ...]).
@@ -979,11 +1032,29 @@ conversion_method={conversion_method}
 
 
 def _do_split_and_manifest(temp_dir, input_md, chunk_size):
-    """Split markdown and create manifest. Returns chunk count or 0 on failure."""
+    """Never silently change chunk IDs in a resumable translation workspace."""
+    if chunk_size <= 0:
+        raise ValueError("--chunk-size must be positive")
+    config_path = os.path.join(temp_dir, CHUNKING_CONFIG_FILE)
     existing = _find_existing_chunk_files(temp_dir)
     if existing:
-        print(f"Skipping markdown splitting - found {len(existing)} existing chunk files")
-        # Create/update manifest for existing files
+        if os.path.isfile(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                saved = json.load(f)
+            if (saved.get('chunk_size') != chunk_size or
+                    saved.get('strategy_version') != CHUNKING_STRATEGY_VERSION):
+                raise ValueError(
+                    "Existing chunks use another chunk size/splitting strategy. "
+                    "Start a fresh workspace with --temp-root; do not overwrite "
+                    "partially translated chunks in place."
+                )
+        else:
+            print(
+                "WARNING: Legacy chunks have no chunking_config.json; "
+                f"reusing {len(existing)} unchanged chunks. The new "
+                f"{chunk_size}-character strategy is NOT applied. "
+                "Use a fresh --temp-root to re-chunk safely."
+            )
         create_manifest(temp_dir, existing, input_md)
         return len(existing)
 
@@ -991,6 +1062,13 @@ def _do_split_and_manifest(temp_dir, input_md, chunk_size):
     if not chunk_files:
         return 0
     create_manifest(temp_dir, chunk_files, input_md)
+    # Record chunk settings only AFTER both chunks and manifest exist.
+    with open(config_path, 'w', encoding='utf-8') as f:
+        json.dump({
+            "chunk_size": chunk_size,
+            "strategy_version": CHUNKING_STRATEGY_VERSION,
+        }, f, ensure_ascii=False, indent=2)
+        f.write('\n')
     return len(chunk_files)
 
 
@@ -1043,7 +1121,7 @@ def main():
     )
     parser.add_argument("-l", "--ilang", default="auto", help="Input language (default: auto)")
     parser.add_argument("--olang", default="zh", help="Output language (default: zh)")
-    parser.add_argument("--chunk-size", type=int, default=6000, help="Target chunk size in characters (default: 6000)")
+    parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE, help="Soft chunk target in characters (default: 12000)")
     parser.add_argument(
         "--temp-root",
         default=None,
