@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import tempfile
@@ -502,6 +503,140 @@ class DisplayMathBlockTests(unittest.TestCase):
         types = [btype for _, btype in blocks]
         self.assertNotIn("math_block", types)
         self.assertIn(("# Heading", "heading"), blocks)
+
+    def test_default_chunk_size_is_twelve_thousand(self):
+        self.assertEqual(convert.DEFAULT_CHUNK_SIZE, 12000)
+        self.assertEqual(convert.merge_blocks_to_chunks(
+            convert.parse_structural_blocks("A" * 7000 + "\n\n" + "B" * 1000)
+        ), ["A" * 7000 + "\n\n" + "B" * 1000])
+
+    def test_small_subheadings_do_not_force_tiny_chunks(self):
+        content = "# 第一章\n\n" + "第一段。" * 100
+        for index in range(20):
+            content += f"\n\n### 小节{index}\n\n" + "短段落。" * 30
+        blocks = convert.parse_structural_blocks(content)
+        chunks = convert.merge_blocks_to_chunks(blocks, target_size=1200)
+        self.assertLess(len(chunks), 12)
+        self.assertEqual("\n".join(chunks), content)
+        for index in range(20):
+            heading = f"### 小节{index}"
+            marker = heading + "\n"
+            self.assertEqual(sum(marker in chunk for chunk in chunks), 1)
+            self.assertTrue(any(
+                marker in chunk and "短段落。" in chunk.split(marker, 1)[-1]
+                for chunk in chunks
+            ))
+
+    def test_top_level_chapters_remain_separate(self):
+        content = "# 第一章\n\n" + "一" * 100 + "\n\n# 第二章\n\n" + "二" * 100
+        chunks = convert.merge_blocks_to_chunks(
+            convert.parse_structural_blocks(content), target_size=12000
+        )
+        self.assertEqual(len(chunks), 2)
+        self.assertTrue(chunks[0].startswith("# 第一章"))
+        self.assertTrue(chunks[1].startswith("# 第二章"))
+        self.assertEqual("\n".join(chunks), content)
+
+    def test_consecutive_peer_chapters_keep_their_boundary(self):
+        content = "# 纪一\n\n# 纪二\n\n" + "正文。" * 100
+        chunks = convert.merge_blocks_to_chunks(
+            convert.parse_structural_blocks(content), target_size=12000
+        )
+        self.assertEqual(len(chunks), 2)
+        self.assertTrue(chunks[0].startswith("# 纪一"))
+        self.assertTrue(chunks[1].startswith("# 纪二"))
+        self.assertEqual("\n".join(chunks), content)
+
+    def test_nested_peer_headings_are_not_swallowed_by_parent(self):
+        content = "# 一章\n\n## 甲\n\n## 乙\n\n" + "乙章正文。" * 100
+        blocks = convert.parse_structural_blocks(content)
+        units = list(convert._chunk_units(blocks))
+        self.assertEqual(len(units), 2)
+        self.assertIn("## 甲", units[0][0])
+        self.assertNotIn("## 乙", units[0][0])
+        self.assertTrue(units[1][0].startswith("## 乙"))
+        self.assertEqual(
+            "\n".join(convert.merge_blocks_to_chunks(blocks, 12000)), content
+        )
+
+    def test_second_level_heading_prefers_full_enough_boundary(self):
+        content = "前。" * 420 + "\n\n## 新节\n\n" + "后。" * 100
+        chunks = convert.merge_blocks_to_chunks(
+            convert.parse_structural_blocks(content), target_size=1200
+        )
+        self.assertEqual(len(chunks), 2)
+        self.assertTrue(chunks[1].startswith("## 新节"))
+        self.assertIn("后。", chunks[1])
+        self.assertEqual("\n".join(chunks), content)
+
+    def test_title_stays_with_body_when_size_boundary_crossed(self):
+        content = "首。" * 450 + "\n\n### 第三节\n\n" + "后。" * 500
+        chunks = convert.merge_blocks_to_chunks(
+            convert.parse_structural_blocks(content), target_size=1200
+        )
+        self.assertEqual("\n".join(chunks), content)
+        self.assertTrue(any(
+            "### 第三节" in chunk and "后。" in chunk.split("### 第三节", 1)[-1]
+            for chunk in chunks
+        ))
+
+    def test_pei_annotations_and_notes_survive_chunking(self):
+        note = "> 【一】《魏书》曰：兵三十余万。\n> 其事未详。"
+        math = "$\na+b=c\n$"
+        table = "| 姓名 | 兵数 |\n| --- | --- |\n| 曹操 | 三十余万 |"
+        content = "# 武帝纪\n\n" + "事。" * 300 + "\n\n" + note + "\n\n" + table + "\n\n" + math
+        chunks = convert.merge_blocks_to_chunks(
+            convert.parse_structural_blocks(content), target_size=800
+        )
+        self.assertEqual("\n".join(chunks), content)
+        for marker in (note, math, table, "【一】"):
+            self.assertEqual(sum(marker in chunk for chunk in chunks), 1)
+
+    def test_oversized_single_paragraph_does_not_orphan_heading(self):
+        content = "# 长章节\n\n" + "连续史文。" * 600
+        chunks = convert.merge_blocks_to_chunks(
+            convert.parse_structural_blocks(content), target_size=300
+        )
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0], content)
+
+    def test_oversized_quote_and_math_blocks_stay_intact(self):
+        quote = "> " + "注释" * 2000
+        formula = "$\n" + "a+b=c\n" * 450 + "$"
+        for content, expected in ((quote, quote), (formula, formula)):
+            chunks = convert.merge_blocks_to_chunks(
+                convert.parse_structural_blocks(content), target_size=100
+            )
+            self.assertEqual(chunks, [expected])
+
+    def test_chunk_settings_written_and_reuse_protected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            md = os.path.join(temp, "input.md")
+            with open(md, "w", encoding="utf-8") as handle:
+                handle.write("# 测试\n\n" + "长篇。" * 100)
+            count = convert._do_split_and_manifest(temp, md, 12000)
+            self.assertGreater(count, 0)
+            settings = json.loads(
+                Path(temp, "chunking_config.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(settings["chunk_size"], 12000)
+            self.assertEqual(
+                convert._do_split_and_manifest(temp, md, 12000), count
+            )
+            with self.assertRaisesRegex(ValueError, "fresh workspace"):
+                convert._do_split_and_manifest(temp, md, 16000)
+
+    def test_legacy_chunks_are_preserved_without_chunk_settings(self):
+        with tempfile.TemporaryDirectory() as temp:
+            md = Path(temp, "input.md")
+            md.write_text("Legacy book", encoding="utf-8")
+            chunk = Path(temp, "chunk0001.md")
+            chunk.write_text("Legacy chunk", encoding="utf-8")
+            self.assertEqual(
+                convert._do_split_and_manifest(temp, str(md), 12000), 1
+            )
+            self.assertEqual(chunk.read_text(encoding="utf-8"), "Legacy chunk")
+            self.assertFalse(Path(temp, "chunking_config.json").exists())
 
     def test_math_block_is_never_split_across_chunks(self):
         formula = "$$\n" + "\n".join(f"x_{i} = {i}" for i in range(40)) + "\n$$"

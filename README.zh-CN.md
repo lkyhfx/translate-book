@@ -210,11 +210,21 @@ python3 scripts/merge_and_build.py --temp-dir book_temp --require-refinement
 python3 scripts/convert.py /path/to/book.pdf --olang zh
 ```
 
-Calibre 将输入文件转为 HTMLZ，解压后转为 Markdown，再拆分为 chunk（每个约 6000 字符）。`manifest.json` 记录每个源 chunk 的 SHA-256 hash，用于后续校验；`source_fingerprint.json` 则把 temp 目录与生成它的源文件字节绑定 — 若源文件被替换后重跑，会直接报错中止，而不是静默复用过时的 chunk。指纹机制之前创建的 temp 目录会在首次重跑时打印警告并被接管。
+Calibre 将输入文件转为 HTMLZ，解压后转为 Markdown，再按结构分块（默认以 **12000 字符为软目标**）。不同于旧版“见标题就断”，现在一级标题仍保留篇章边界，短小的二级和更低级标题尽量合并，并保证标题和紧随的第一段正文在一起。`manifest.json` 记录每个源 chunk 的 SHA-256 hash，用于后续校验；`source_fingerprint.json` 则把 temp 目录与生成它的源文件字节绑定 — 若源文件被替换后重跑，会直接报错中止，而不是静默复用过时的 chunk。指纹机制之前创建的 temp 目录会在首次重跑时打印警告并被接管。
 
 默认工作目录是当前目录下的 `{book_name}_temp/`。如果要换父目录，可使用 `--temp-root /path/to/work`；叶子目录名仍保持 `{book_name}_temp/`。
 
-#### 公式、表格密集的 PDF：改为转换 Markdown（可选）
+#可以使用 `--chunk-size 16000` 覆盖默认的 12000 字符。切分器尽量让 Chunk 接近
+目标大小，但会为结构完整性允许约 60%～150% 的波动，超长的表格、公式、裴注引用块、
+代码块以及不可拆的单行文字可以超过上限。
+
+**已存在的工作目录不会重新分块。** 新工作目录会写入
+`chunking_config.json`（大小与算法版本）；以后使用不同设置会拒绝复用，
+防止译文与 Chunk 编号错位。旧工作目录缺少该文件时，会给出提醒并沿用原来的
+Chunk。要测试新版 12K 或其他大小，请使用新的 `--temp-root`，不要清理正在
+翻译的工作目录。
+
+### 公式、表格密集的 PDF：改为转换 Markdown（可选）
 
 Calibre 靠坐标启发式重排 PDF 文本，对普通正文够用，但学术、技术类 PDF 会丢失结构：公式被拆成碎片，表格被拍平成一行一个单元格，多栏版面相互交错。对这类 PDF，先用版面感知解析器转出 Markdown，再把 Markdown 交给 `convert.py`。`.md` / `.markdown` 输入完全不经过 Calibre：
 

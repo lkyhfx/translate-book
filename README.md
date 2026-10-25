@@ -210,9 +210,19 @@ The second pass is a best-effort quality improvement, not a guarantee of correct
 python3 scripts/convert.py /path/to/book.pdf --olang zh
 ```
 
-Calibre converts the input to HTMLZ, which is extracted and converted to Markdown, then split into chunks (~6000 chars each). A `manifest.json` records the SHA-256 hash of each source chunk for later validation, and a `source_fingerprint.json` ties the temp dir to the exact source bytes it was built from — re-running against a replaced source file aborts instead of silently reusing stale chunks. Temp dirs created before fingerprinting are adopted with a warning on first re-run.
+Calibre converts the input to HTMLZ, which is extracted and converted to Markdown, then split into **structure-aware chunks (12,000-character soft target by default)**. Unlike the old splitter, minor headings do not automatically create tiny chunks: top-level chapter boundaries remain separate, H2 prefers well-filled boundaries, and each heading stays with its first content block. A `manifest.json` records the SHA-256 hash of each source chunk for later validation, and a `source_fingerprint.json` ties the temp dir to the exact source bytes it was built from — re-running against a replaced source file aborts instead of silently reusing stale chunks. Temp dirs created before fingerprinting are adopted with a warning on first re-run.
 
 By default the working directory is `{book_name}_temp/` under the current directory. Use `--temp-root /path/to/work` to keep the same leaf directory name under a different parent.
+
+Specify `--chunk-size 16000` to override the default soft target. The splitter
+aims for ~60–150% of the target where feasible; unsplittable tables, math,
+blockquotes, code and extremely long single lines can exceed the limit.
+**No re-chunking of existing workspaces**: fresh runs store
+`chunking_config.json` (size + strategy version). A settings mismatch fails
+rather than overwriting translated chunks. Older workspaces without this
+metadata are reused unchanged with a warning (new defaults do not retroactively
+apply). Test another size in a new `--temp-root`; don't delete active work.
+
 
 #### Formula- and table-heavy PDFs: convert Markdown instead (optional)
 
