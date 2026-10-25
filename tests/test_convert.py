@@ -520,9 +520,10 @@ class DisplayMathBlockTests(unittest.TestCase):
         self.assertEqual("\n".join(chunks), content)
         for index in range(20):
             heading = f"### 小节{index}"
-            self.assertEqual(sum(heading in chunk for chunk in chunks), 1)
+            marker = heading + "\n"
+            self.assertEqual(sum(marker in chunk for chunk in chunks), 1)
             self.assertTrue(any(
-                heading in chunk and "短段落。" in chunk.split(heading, 1)[-1]
+                marker in chunk and "短段落。" in chunk.split(marker, 1)[-1]
                 for chunk in chunks
             ))
 
