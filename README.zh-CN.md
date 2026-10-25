@@ -43,7 +43,7 @@ Calibre ebook-convert → HTMLZ → HTML → Markdown
 - **可续跑 + 两轮翻译** — chunk 级续跑；术语表变化优先触发第二轮针对性修订，不重复首次翻译
 - **邻居上下文** — 每个 chunk 可读取相邻 chunk 的短只读摘录，用于代词和实体判断
 - **Manifest 校验** — SHA-256 hash 追踪，防止过时或损坏的输出被合并
-- **多格式输出** — HTML（含浮动目录）、DOCX、EPUB、PDF
+- **多格式输出** — 离线单文件 HTML 阅读器（章节按需挂载、注释弹窗、字体／字号／**字重**、纯白等主题），以及 DOCX、EPUB、PDF
 - **可选输出控制** — 显式 EPUB 封面、自定义 temp root、面向用户的导出别名
 - **多语言** — zh、en、ja、ko、fr、de、es（可扩展）
 - **多格式输入** — PDF/DOCX/EPUB/Markdown，Calibre 负责格式转换；公式、表格密集的 PDF 可先用 MinerU 或 Marker 转成 Markdown
@@ -55,7 +55,7 @@ Calibre ebook-convert → HTMLZ → HTML → Markdown
 - **Pandoc** — 用于 HTML↔Markdown 转换（[下载](https://pandoc.org/)）
 - **Python 3**，需要：
   - `pypandoc` — 必需（`pip install pypandoc`）
-  - `beautifulsoup4` — 可选，用于更好的目录生成（`pip install beautifulsoup4`）
+  - `beautifulsoup4` — **离线 HTML 阅读器必需**（`pip install beautifulsoup4`）
 - **MinerU 或 Marker** — 可选，仅用于把公式、表格密集的 PDF 预先转成 Markdown（见[第一步](#第一步转换)）
 
 ## 快速开始
@@ -131,7 +131,7 @@ Skill 自动处理完整流程 — 转换、拆分、并行翻译、校验、合
 | 文件 | 说明 |
 |------|------|
 | `output.md` | 合并后的翻译 Markdown |
-| `book.html` | 网页版，含浮动目录 |
+| `book.html` | 单文件离线阅读器：按章显示、目录、注释角标弹窗、字体与字重、四种主题 |
 | `book.docx` | Word 文档 |
 | `book.epub` | 电子书 |
 | `book.pdf` | 可打印 PDF |
@@ -201,6 +201,28 @@ python3 scripts/merge_and_build.py --temp-dir book_temp --require-refinement
 ```
 
 第二轮旨在提高忠实度，并不保证零错误；高风险文献仍建议人工复核。
+
+## 可离线阅读的单文件 HTML（`book.html`）
+
+`book.html` 内嵌整本书的章节数据、样式、JavaScript、注释以及本地图片，
+**双击即可离线打开，不需要启动服务器**。目录可跳转章节，阅读区同一时刻
+只挂载当前章节的 DOM，上一章／下一章可随时切换。点击正文的注释角标，
+以浏览器原生 Popover API（旧版浏览器支持降级）查看注释。
+
+阅读设置按书籍本地保存（浏览器允许 localStorage 时）：
+- **字体**：宋体、仿宋、楷体、黑体；**字号**：14–30 px。
+- **字重（font weight）**：300、400、500、600、700 五档。具体粗细效果
+  受系统安装的字体及字体支持的字重限制。
+- **主题**：暖白、**纯白（#FFFFFF）**、米黄、深色。
+
+Pandoc 脚注／尾注、正文中与注释定义明确对应的 `【一】` 等史书注释
+会自动生成角标和弹窗。不能确定对应关系的注释不会擅自猜测或删除。
+图片引用指向工作目录内的本地图片时会被内嵌到 HTML。
+超长章节可拆成多个阅读子部分，避免单章 DOM 过大。
+
+**其他导出不受影响：** `book_doc.html` 依然保存完整的静态正文，
+DOCX／EPUB／PDF 继续由它转换。单文件依旧需要浏览器一次读取 HTML
+文件；优化的是可见正文的 DOM 渲染，不是网络按章下载。
 
 ## 流程详解
 
