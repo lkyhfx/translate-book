@@ -547,6 +547,18 @@ class DisplayMathBlockTests(unittest.TestCase):
         self.assertTrue(chunks[1].startswith("# 纪二"))
         self.assertEqual("\n".join(chunks), content)
 
+    def test_nested_peer_headings_are_not_swallowed_by_parent(self):
+        content = "# 一章\n\n## 甲\n\n## 乙\n\n" + "乙章正文。" * 100
+        blocks = convert.parse_structural_blocks(content)
+        units = list(convert._chunk_units(blocks))
+        self.assertEqual(len(units), 2)
+        self.assertIn("## 甲", units[0][0])
+        self.assertNotIn("## 乙", units[0][0])
+        self.assertTrue(units[1][0].startswith("## 乙"))
+        self.assertEqual(
+            "\n".join(convert.merge_blocks_to_chunks(blocks, 12000)), content
+        )
+
     def test_second_level_heading_prefers_full_enough_boundary(self):
         content = "前。" * 420 + "\n\n## 新节\n\n" + "后。" * 100
         chunks = convert.merge_blocks_to_chunks(
