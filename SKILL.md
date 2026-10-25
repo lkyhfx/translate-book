@@ -132,8 +132,10 @@ default so old temp dirs remain resumable without mass re-translation.
 
 Capture stdout JSON:
 - `translation_chunk_ids` — chunks to translate in this run.
+- `refinement_chunk_ids` — valid existing drafts affected by glossary edits; defer
+  them to Step 5.5 for direct correction, **not a third translation call**.
 - `record_only_chunk_ids` — existing valid outputs that need `run_state.json`
-  records but do not need translation.
+  records but do not need translation or glossary-related refinement.
 - `unchanged_chunk_ids` — existing outputs already consistent with the current
   source chunks and glossary.
 
@@ -430,12 +432,13 @@ python3 {baseDir}/scripts/run_state.py refine-plan "<temp_dir>"
 python3 {baseDir}/scripts/run_state.py refine-record "<temp_dir>" chunk0001
 ```
 
-The `refine-record` command updates only the refined output hash and completion
-metadata **inside existing `run_state.json`**. It deliberately preserves the
-glossary/term hashes used by the first-pass translation; otherwise a glossary
-change could accidentally be marked as already translated. A later source,
-glossary or output change invalidates the relevant refinement without resetting
-other chunks. On resume use `refine-plan`; never blindly rerun every chunk.
+The `refine-record` command records the finished output hash **inside the
+existing `run_state.json`**. It preserves the original first-pass glossary
+provenance separately, while updating the *final* draft's glossary snapshot to
+the one the refinement agent actually used. Later glossary edits trigger only
+a new second-pass correction, **not another full first-pass translation**;
+source changes or missing drafts still require initial translation.
+On resume use `refine-plan`; never blindly rerun every chunk.
 
 Finally:
 
