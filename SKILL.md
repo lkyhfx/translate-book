@@ -22,6 +22,7 @@ Determine the following from the user's message:
 - **export_name**: Optional filename stem for user-facing output aliases
 - **custom_instructions**: Any additional translation instructions from the user (optional)
 - **refinement**: Exactly one second-pass agent per chunk (default on), comparing original and draft, directly correcting only real problems; no issue reports or third review.
+- **chunk_size**: Optional soft source chunk target in characters (default: `12000`); it does not cap the model's token budget.
 
 If the file path is not provided, ask the user.
 
@@ -30,12 +31,27 @@ If the file path is not provided, ask the user.
 Run the conversion script to produce chunks:
 
 ```bash
-python3 {baseDir}/scripts/convert.py "<file_path>" --olang "<target_lang>"
+python3 {baseDir}/scripts/convert.py "<file_path>" --olang "<target_lang>" --chunk-size "<chunk_size>"
 ```
 
 If the user provided `temp_root`, add `--temp-root "<temp_root>"`. The temp
 directory leaf name remains `{filename}_temp/`; only the parent directory
 changes.
+
+Use `12000` if the user did not specify a `chunk_size`. Chunk boundaries are
+structural and size is a soft target: prefer complete chapters, sections and
+paragraphs, with shorter subsections merged instead of a mandatory split at
+every Markdown heading. Level-1 chapter headings remain major boundaries.
+Oversized math/tables/blockquote/code units remain intact.
+
+**Resume safety:** existing `chunk*.md` files are **not** regenerated in place.
+New workspaces write `chunking_config.json` with chunk size and algorithm
+version. If those settings do not match a subsequent invocation, the conversion
+aborts instead of reusing mismatched chunks. For pre-upgrade workspaces without
+this config, conversion warns and preserves their original chunks: the new 12K
+setting does **not** take effect there. To compare sizes, specify a *fresh*
+`--temp-root` (do not delete ongoing translations just to change chunk size).
+
 
 For PDFs, Calibre reflows text by coordinate heuristics, which shatters math
 formulas, flattens tables, and interleaves multi-column layouts before
