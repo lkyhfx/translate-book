@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -260,6 +261,19 @@ class RunStateTests(unittest.TestCase):
                 run_state.refinement_plan(str(temp_dir))["refinement_chunk_ids"],
                 ["chunk0001"],
             )
+
+    def test_build_refuses_to_export_before_second_pass(self):
+        tmp, temp_dir = self._workspace()
+        with tmp:
+            run_state.record_chunks(str(temp_dir), ["chunk0001", "chunk0002"])
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT_DIR / "merge_and_build.py"),
+                 "--temp-dir", str(temp_dir), "--require-refinement"],
+                text=True, capture_output=True, check=False,
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("contextual refinement required", proc.stderr)
+            self.assertFalse((temp_dir / "output.md").exists())
 
     def test_refinement_rejects_untracked_and_missing_source(self):
         tmp, temp_dir = self._workspace()
