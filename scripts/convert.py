@@ -817,13 +817,23 @@ def _chunk_units(blocks):
         level = len(text.lstrip().split(' ', 1)[0])
         parts = [text]
         i += 1
-        while i < len(blocks) and (
-            blocks[i][1] == 'heading' or not blocks[i][0].strip()
-        ):
-            parts.append(blocks[i][0])
-            i += 1
+        while i < len(blocks):
+            next_text, next_kind = blocks[i]
+            if not next_text.strip():
+                parts.append(next_text)
+                i += 1
+            elif next_kind == 'heading':
+                next_level = len(next_text.lstrip().split(' ', 1)[0])
+                # A new peer or parent heading starts its own section; only
+                # genuinely nested headings can belong to this heading unit.
+                if next_level <= level:
+                    break
+                parts.append(next_text)
+                i += 1
+            else:
+                break
         lead_type = None
-        if i < len(blocks):
+        if i < len(blocks) and blocks[i][1] != 'heading':
             lead_type = blocks[i][1]
             parts.append(blocks[i][0])
             i += 1
