@@ -314,6 +314,7 @@ def make_reader(input_path, output_path):
     raw=Path(input_path).read_text('utf-8')
     soup=BeautifulSoup(raw,'html.parser')
     book_title=(soup.title.get_text(strip=True) if soup.title else Path(input_path).stem) or Path(input_path).stem
+    document_lang=(soup.html.get('lang','zh-CN') if soup.html else 'zh-CN') or 'zh-CN'
     author=(soup.find('meta',attrs={'name':'author'}) or {}).get('content','')
     for node in list(soup.body.select('.toc-toggle,.toc-sidebar,.toc-overlay,script,style,#title-block-header')):
         node.decompose()
@@ -333,7 +334,7 @@ def make_reader(input_path, output_path):
     metadata=[{'id':ch['id'],'title':ch['title']} for ch in chapters]
     data=json_safe(json.dumps({'key':book_key,'chapters':metadata,'notes':notes,'idMap':id_map},ensure_ascii=False,separators=(',',':')))
     chapter_data='\n'.join(f'<script type="application/json" id="chapter-json-{i}">'+json_safe(json.dumps(ch['html'],ensure_ascii=False))+'</script>' for i,ch in enumerate(chapters))
-    page=f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="author" content="{html.escape(author,quote=True)}"><meta name="book-reader" content="v1"><title>{html.escape(book_title)}</title><style>{READER_CSS}</style></head><body>
+    page=f'''<!doctype html><html lang="{html.escape(document_lang,quote=True)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="author" content="{html.escape(author,quote=True)}"><meta name="book-reader" content="v1"><title>{html.escape(book_title)}</title><style>{READER_CSS}</style></head><body>
 <div class="toolbar"><button id="tocButton" aria-expanded="false" aria-controls="drawer" type="button">☰ 目录</button><div class="brand">{html.escape(book_title)}</div><div class="settings"><label for="fontSelect">字体</label><select id="fontSelect" title="字体"><option value="song">宋体</option><option value="fangsong">仿宋</option><option value="kai">楷体</option><option value="sans">黑体</option></select><button id="smaller" type="button" aria-label="缩小字号">A−</button><span id="fontSize" aria-live="polite">19</span><button id="larger" type="button" aria-label="增大字号">A+</button><label for="weightSelect">字重</label><select id="weightSelect" aria-label="字重"><option value="300">细</option><option value="400">正常</option><option value="500">中</option><option value="600">半粗</option><option value="700">粗</option></select><select id="themeSelect" aria-label="阅读主题"><option value="light">暖白</option><option value="white">纯白</option><option value="sepia">米黄</option><option value="dark">深色</option></select></div></div>
 <div class="drawer-overlay" id="overlay"></div><aside class="drawer" id="drawer" aria-label="全书目录"><div class="drawer-title"><strong>章节目录</strong><button id="closeToc" aria-label="关闭目录">×</button></div><nav id="toc"></nav></aside>
 <p class="chapter-meta" id="currentChapter"></p><article id="chapterBody" aria-live="off"></article>
