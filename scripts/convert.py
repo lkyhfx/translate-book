@@ -815,6 +815,7 @@ def _chunk_units(blocks):
             continue
 
         level = len(text.lstrip().split(' ', 1)[0])
+        last_heading_level = level
         parts = [text]
         i += 1
         while i < len(blocks):
@@ -826,8 +827,9 @@ def _chunk_units(blocks):
                 next_level = len(next_text.lstrip().split(' ', 1)[0])
                 # A new peer or parent heading starts its own section; only
                 # genuinely nested headings can belong to this heading unit.
-                if next_level <= level:
+                if next_level <= last_heading_level:
                     break
+                last_heading_level = next_level
                 parts.append(next_text)
                 i += 1
             else:
