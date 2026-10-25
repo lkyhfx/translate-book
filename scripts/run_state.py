@@ -190,6 +190,7 @@ def plan(temp_dir, retranslate_untracked=False):
         "temp_dir": temp_dir,
         "glossary_hash": glossary_hash,
         "translation_chunk_ids": [],
+        "refinement_chunk_ids": [],
         "record_only_chunk_ids": [],
         "unchanged_chunk_ids": [],
         "chunks": [],
@@ -266,7 +267,7 @@ def plan(temp_dir, retranslate_untracked=False):
             if current_entity_ids != recorded_entity_ids:
                 # If a second-pass draft exists, apply changed terms there rather
                 # than spending another full LLM call on first-pass translation.
-                item["action"] = "record" if record.get("refined_output_hash") else "translate"
+                item["action"] = "refine"
                 _reason(item, "glossary_term_selection_changed")
             else:
                 changed_ids = [
@@ -274,7 +275,7 @@ def plan(temp_dir, retranslate_untracked=False):
                     if current_entity_hashes.get(term_id) != recorded_entity_hashes.get(term_id)
                 ]
                 if changed_ids:
-                    item["action"] = "record" if record.get("refined_output_hash") else "translate"
+                    item["action"] = "refine"
                     _reason(item, "glossary_term_hash_changed", changed_ids)
 
         if item["action"] == "unchanged" and record is not None:
@@ -285,6 +286,8 @@ def plan(temp_dir, retranslate_untracked=False):
 
         if item["action"] == "translate":
             result["translation_chunk_ids"].append(chunk_id)
+        elif item["action"] == "refine":
+            result["refinement_chunk_ids"].append(chunk_id)
         elif item["action"] == "record":
             result["record_only_chunk_ids"].append(chunk_id)
         else:
@@ -303,6 +306,7 @@ def status(temp_dir):
         "tracked_chunks": len(state.get("chunks", {})),
         "source_chunks": len(entries),
         "translation_needed": len(planned["translation_chunk_ids"]),
+        "refinement_needed": len(planned["refinement_chunk_ids"]),
         "record_only_needed": len(planned["record_only_chunk_ids"]),
         "unchanged": len(planned["unchanged_chunk_ids"]),
     }
