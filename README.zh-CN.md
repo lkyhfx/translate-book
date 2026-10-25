@@ -65,14 +65,14 @@ Calibre ebook-convert → HTMLZ → HTML → Markdown
 #### Codex
 
 ```bash
-npx skills add deusyu/translate-book -a codex -g
+npx skills add lkyhfx/translate-book -a codex -g
 ```
 
 或手动安装：
 
 ```bash
 mkdir -p ~/.agents/skills
-git clone https://github.com/deusyu/translate-book.git ~/.agents/skills/translate-book
+git clone https://github.com/lkyhfx/translate-book.git ~/.agents/skills/translate-book
 ```
 
 如果新安装的 Skill 没有出现，请重启 Codex。
@@ -80,14 +80,14 @@ git clone https://github.com/deusyu/translate-book.git ~/.agents/skills/translat
 #### Claude Code
 
 ```bash
-npx skills add deusyu/translate-book -a claude-code -g
+npx skills add lkyhfx/translate-book -a claude-code -g
 ```
 
 或手动安装：
 
 ```bash
 mkdir -p ~/.claude/skills
-git clone https://github.com/deusyu/translate-book.git ~/.claude/skills/translate-book
+git clone https://github.com/lkyhfx/translate-book.git ~/.claude/skills/translate-book
 ```
 
 #### OpenClaw
@@ -95,6 +95,10 @@ git clone https://github.com/deusyu/translate-book.git ~/.claude/skills/translat
 ```bash
 openclaw skills install @deusyu/translate-book
 ```
+
+注意：上面的 ClawHub 安装命令对应上游原版；离线阅读器等增强功能在 GitHub 的 `lkyhfx/translate-book` Fork 中。
+
+
 
 ### 2. 翻译一本书
 
