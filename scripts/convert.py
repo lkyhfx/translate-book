@@ -879,6 +879,18 @@ def merge_blocks_to_chunks(blocks, target_size=DEFAULT_CHUNK_SIZE):
             flush()
             print(f"  WARNING: Oversized {kind} unit ({block_size} chars); splitting")
             sub_chunks = _force_split_block(text, target_size)
+            if kind == 'heading':
+                # The fallback's paragraph split may otherwise yield a
+                # heading-only first chunk; prepend such fragments to the next
+                # part even if that produces an oversized first chunk.
+                def only_headings(fragment):
+                    return all(
+                        not line.strip() or re.match(r'^#{1,6}\\s', line.strip())
+                        for line in fragment.splitlines()
+                    )
+                while len(sub_chunks) > 1 and only_headings(sub_chunks[0]):
+                    sub_chunks[1] = sub_chunks[0] + '\\n\\n' + sub_chunks[1]
+                    sub_chunks.pop(0)
             chunks.extend(sub_chunks)
             continue
 
