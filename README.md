@@ -40,7 +40,7 @@ Each chunk gets its own independent subagent with a fresh context window. This p
 ## Features
 
 - **Parallel subagents** — 8 concurrent translators per batch, each with isolated context
-- **Resumable + selective re-translation** — chunk-level resume, with `run_state.json` tracking glossary-sensitive re-translation
+- **Resumable two-pass translation** — chunk-level resume; glossary edits trigger targeted second-pass correction instead of an extra first-pass translation
 - **Neighbor context** — each chunk can see short read-only excerpts from adjacent chunks for pronoun and entity resolution
 - **Manifest validation** — SHA-256 hash tracking prevents stale or corrupt outputs from being merged
 - **Multi-format output** — HTML (with floating TOC), DOCX, EPUB, PDF
@@ -255,7 +255,7 @@ Each chunk is translated by a fresh-context sub-agent, which means the same prop
 
 Existing v1 `glossary.json` files are auto-upgraded to v2 on first load. v2 forbids the same surface form (source or alias) appearing in two different terms; if a v1 file has polysemous duplicate sources, the upgrade aborts with a disambiguation message — fix the file by hand and reload.
 
-Edit `glossary.json` between runs to fix translations; existing `glossary.json` is never overwritten — delete it to rebuild from scratch. `scripts/run_state.py` records which glossary terms each chunk used, so later glossary changes (including `target`, `category`, and `aliases` edits) only re-translate affected chunks after the state has been recorded.
+Edit `glossary.json` between runs to fix translations; existing `glossary.json` is never overwritten — delete it to rebuild from scratch. `scripts/run_state.py` records which glossary terms each chunk used, so later glossary changes (including `target`, `category`, and `aliases` edits) route only affected chunks to contextual refinement.
 
 ### Step 2: Translate (parallel subagents)
 
@@ -303,7 +303,7 @@ Then: merge → Pandoc HTML → inject TOC → Calibre generates DOCX, EPUB, PDF
 | `scripts/chunk_context.py` | Read-only previous/next chunk excerpts for sub-agent prompts |
 | `scripts/meta.py` | Per-chunk sub-agent observation file schema (`output_chunkNNNN.meta.json`) |
 | `scripts/merge_meta.py` | Batch-boundary merge: sub-agent observations → canonical glossary |
-| `scripts/run_state.py` | Selective re-translation planner and `run_state.json` recorder |
+| `scripts/run_state.py` | Source/glossary provenance, two-pass refinement and resumable chunk planner |
 | `scripts/merge_and_build.py` | Merge chunks → HTML → DOCX/EPUB/PDF |
 | `scripts/calibre_html_publish.py` | Calibre wrapper for format conversion |
 | `scripts/template.html` | Web HTML template with floating TOC |
