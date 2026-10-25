@@ -264,7 +264,9 @@ def plan(temp_dir, retranslate_untracked=False):
             recorded_entity_hashes = record.get("entity_hashes_used", {})
 
             if current_entity_ids != recorded_entity_ids:
-                item["action"] = "translate"
+                # If a second-pass draft exists, apply changed terms there rather
+                # than spending another full LLM call on first-pass translation.
+                item["action"] = "record" if record.get("refined_output_hash") else "translate"
                 _reason(item, "glossary_term_selection_changed")
             else:
                 changed_ids = [
@@ -272,7 +274,7 @@ def plan(temp_dir, retranslate_untracked=False):
                     if current_entity_hashes.get(term_id) != recorded_entity_hashes.get(term_id)
                 ]
                 if changed_ids:
-                    item["action"] = "translate"
+                    item["action"] = "record" if record.get("refined_output_hash") else "translate"
                     _reason(item, "glossary_term_hash_changed", changed_ids)
 
         if item["action"] == "unchanged" and record is not None:
@@ -312,6 +314,12 @@ def refinement_plan(temp_dir):
     entries = _chunk_entries_from_manifest(temp_dir)
     records = load_run_state(temp_dir)["chunks"]
     waiting = set(translation["translation_chunk_ids"])
+    terms_changed = {
+        item["chunk_id"] for item in translation["chunks"]
+        if any((r == "glossary_term_selection_changed"
+                or isinstance(r, dict) and r.get("code") == "glossary_term_hash_changed")
+               for r in item["reasons"])
+    }
     result = {"refinement_chunk_ids": [], "refined_chunk_ids": [],
               "waiting_for_translation_chunk_ids": []}
     for entry in entries:
@@ -323,7 +331,8 @@ def refinement_plan(temp_dir):
             key = "waiting_for_translation_chunk_ids"
         elif not (read_output_text(output) or "").strip():
             key = "waiting_for_translation_chunk_ids"
-        elif (record.get("refined_source_hash") == file_hash(original)
+        elif (cid not in terms_changed
+              and record.get("refined_source_hash") == file_hash(original)
               and record.get("refined_output_hash") == file_hash(output)):
             key = "refined_chunk_ids"
         else:
@@ -355,6 +364,19 @@ def record_refinement(temp_dir, chunk_ids):
         changes[cid] = (file_hash(source), file_hash(target))
     for cid, (src_hash, out_hash) in changes.items():
         record = state["chunks"][cid]
+        record.setdefault("first_pass_glossary_version_used",
+                          record.get("glossary_version_used", ""))
+        record.setdefault("first_pass_entity_hashes_used",
+                          record.get("entity_hashes_used", {}).copy())
+        # The *final* draft now follows the latest glossary. Preserve the
+        # first-pass snapshot above, but make the current output version current.
+        glossary, glossary_hash, _, _ = _load_glossary(temp_dir)
+        source = os.path.join(temp_dir, entries[cid]["source_file"])
+        terms = _selected_terms_for_chunk(glossary, source)
+        ids, hashes = _term_ids_and_hashes(terms)
+        record["entity_ids_used"] = ids
+        record["entity_hashes_used"] = hashes
+        record["glossary_version_used"] = glossary_hash
         record["refined_source_hash"] = src_hash
         record["refined_output_hash"] = out_hash
         record["output_hash"] = out_hash
