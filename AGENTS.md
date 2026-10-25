@@ -15,8 +15,16 @@ translate-book is an agent skill for Codex, Claude Code, and OpenClaw that trans
 - `scripts/merge_meta.py` — Batch-boundary merge of sub-agent observations into the canonical glossary
 - `scripts/run_state.py` — First-pass and second-pass resume/provenance; glossary changes go to refinement, not a redundant first-pass rerun
 - `scripts/merge_and_build.py` — Merge translated chunks → HTML/DOCX/EPUB/PDF; skill passes `--require-refinement`
+- `scripts/book_reader_generator.py` — Convert static `book.html` into offline single-file, chapter-mounted reading experience; embed local images, clickable footnotes, font/size/weight themes, and no external JS
 - `scripts/calibre_html_publish.py` — Calibre format conversion wrapper
 - `scripts/template.html`, `scripts/template_ebook.html` — HTML templates
+- `book.html` reader output is interactive and self-contained; `book_doc.html` stays fully static so Calibre exports never require JS or per-chapter fetching
+
+The HTML reader requires `beautifulsoup4`; test with
+`python3 -m unittest discover -s tests -p 'test_*.py'`.
+Keep chapter JSON inside one HTML file, protect unusual Chinese `【一】` annotation
+patterns from accidental deletion, and preserve the original static
+`book_doc.html` for DOCX, EPUB and PDF generation.
 
 ## Testing changes
 

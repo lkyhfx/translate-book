@@ -490,10 +490,30 @@ The `--cleanup` flag removes intermediate files (chunks, input.html, etc.) after
 
 The script reads `output_lang` from `config.txt` automatically. Optional overrides: `--lang`, `--author`.
 
+The build requires `beautifulsoup4` for its offline reader generator
+(`python3 -m pip install beautifulsoup4` if unavailable). The generated
+`book.html` is **one self-contained offline file**: all chapter HTML, CSS,
+JavaScript, annotations and local images are inlined. The browser mounts only
+the selected chapter; a complete TOC, previous/next navigation and
+hash-linked headings remain available. Reading preferences persist locally:
+font family (Song/FangSong/Kai/Sans), font size (14–30 px), font weight
+(300/400/500/600/700), and four color themes (warm white, **pure white
+#FFFFFF**, sepia, dark). Superscript citations open a native-popover note
+preview with a fallback for older browsers. Common Pandoc footnotes/endnotes
+and matching `【一】` classical commentary blocks are supported; leave
+unmatched/ambiguous citations in text rather than inventing explanations.
+Long chapters may be split into reader subparts for responsive mounting.
+No CDN, server, runtime package downloads or external JS dependencies.
+
+Do **not** apply lazy chapter mounting to `book_doc.html`: Calibre must see
+the complete static book for DOCX, EPUB and PDF exports. If standalone reader
+generation fails, report an error rather than silently deliver a blank or
+partial HTML.
+
 This produces in the temp directory:
-- `output.md` — merged translated markdown
-- `book.html` — web version with floating TOC
-- `book_doc.html` — ebook version
+- `output.md` — merged translated Markdown
+- `book.html` — interactive single-file, chapter-mounted offline reader
+- `book_doc.html` — complete static HTML for format conversions
 - `book.docx`, `book.epub`, `book.pdf` — format conversions (requires Calibre)
 
 ### 8. Report Results

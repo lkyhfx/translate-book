@@ -641,16 +641,25 @@ def convert_md_to_html(temp_dir, title, lang_cfg, author=None):
 
     book_doc_file = os.path.join(temp_dir, 'book_doc.html')
 
-    # Skip HTML generation if book_doc.html exists and is newer than output.md
-    if os.path.exists(book_doc_file):
-        if os.path.getmtime(book_doc_file) > os.path.getmtime(md_file):
-            if _check_generated_html_sanity(book_doc_file):
-                print("Skipping HTML generation - book_doc.html is up to date")
-                return True
-            print("Stale book_doc.html failed image sanity — regenerating")
-            os.remove(book_doc_file)
-        else:
-            print("Re-generating HTML - output.md is newer")
+    # Cache both outputs together. A previously built static book.html must
+    # be refreshed after reader integration, even when book_doc.html is fresh.
+    # Also account for updates to the templates and reader generator.
+    book_file = os.path.join(temp_dir, 'book.html')
+    template_ebook = os.path.join(SCRIPT_DIR, 'template_ebook.html')
+    template_web = os.path.join(SCRIPT_DIR, 'template.html')
+    reader_script = os.path.join(SCRIPT_DIR, 'book_reader_generator.py')
+    inputs = [md_file, template_ebook, template_web, reader_script]
+    newest_input = max(os.path.getmtime(path) for path in inputs)
+    if (os.path.isfile(book_doc_file) and os.path.isfile(book_file)
+            and min(os.path.getmtime(book_doc_file),
+                    os.path.getmtime(book_file)) >= newest_input):
+        with open(book_file, 'r', encoding='utf-8') as f:
+            is_reader = 'name="book-reader" content="v1"' in f.read(3000)
+        if (is_reader and _check_generated_html_sanity(book_doc_file)
+                and _check_generated_html_sanity(book_file)):
+            print("Skipping HTML conversion - both static and reader files are current")
+            return True
+    print("Generating HTML outputs (source/template/reader changed or missing)")
 
     temp_html_file = os.path.join(temp_dir, 'output.html')
 
@@ -861,19 +870,30 @@ def insert_toc_with_regex(html_file):
 
 
 def add_toc(temp_dir):
-    """Add TOC to book.html"""
-    print("=== Adding Table of Contents ===")
+    """Produce a self-contained interactive reader without changing static DOC/EPUB HTML.
 
+    The book.html source is the static web template generated in Step 5.
+    All chapter HTML, footnotes, CSS, JS, and local images are embedded in the
+    final file, which loads from file:// without any HTTP server.
+    """
+    print("=== Building single-file interactive book reader ===")
     book_file = os.path.join(temp_dir, 'book.html')
-    if not os.path.exists(book_file):
-        print("Warning: book.html not found, skipping TOC")
+    if not os.path.isfile(book_file):
+        print("ERROR: book.html not found", file=sys.stderr)
         return False
-
-    if BS4_AVAILABLE:
-        return insert_toc_with_bs4(book_file)
-    else:
-        return insert_toc_with_regex(book_file)
-
+    try:
+        with open(book_file, 'r', encoding='utf-8') as f:
+            if 'name="book-reader" content="v1"' in f.read(3000):
+                print("Interactive reader already built")
+                return _check_generated_html_sanity(book_file)
+        from book_reader_generator import make_reader
+        stats = make_reader(book_file, book_file)
+    except (OSError, ValueError, ImportError) as error:
+        print(f"ERROR: offline reader generation failed: {error}", file=sys.stderr)
+        return False
+    print(f"Reader chapters: {stats['chapters']}, annotations: {stats['notes']}, "
+          f"embedded images: {stats['embedded_images']}")
+    return _check_generated_html_sanity(book_file)
 
 # =============================================================================
 # Step 7: Generate DOCX/EPUB/PDF with error transparency
@@ -1092,8 +1112,9 @@ def main():
     if not convert_md_to_html(temp_dir, title, lang_cfg, author):
         sys.exit(1)
 
-    # Step 6: Add TOC
-    add_toc(temp_dir)
+    # Step 6: Build interactive reading HTML (static conversion HTML untouched)
+    if not add_toc(temp_dir):
+        sys.exit(1)
 
     # Step 7: Generate formats
     all_formats_ok = generate_formats(temp_dir, lang_cfg['lang_attr'], cover=cover)
