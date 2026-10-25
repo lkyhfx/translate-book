@@ -130,8 +130,8 @@ class RunStateTests(unittest.TestCase):
             )
             plan = run_state.plan(str(temp_dir))
 
-        self.assertIn("chunk0001", plan["translation_chunk_ids"])
-        self.assertNotIn("chunk0002", plan["translation_chunk_ids"])
+        self.assertIn("chunk0001", plan["refinement_chunk_ids"])
+        self.assertNotIn("chunk0002", plan["refinement_chunk_ids"])
 
     def test_alias_change_on_selected_term_needs_translation(self):
         # chunk0001 contains the source "Tai", so the term is already selected
@@ -150,8 +150,8 @@ class RunStateTests(unittest.TestCase):
                 item["chunk_id"]: item["reasons"] for item in plan["chunks"]
             }
 
-        self.assertIn("chunk0001", plan["translation_chunk_ids"])
-        self.assertNotIn("chunk0002", plan["translation_chunk_ids"])
+        self.assertIn("chunk0001", plan["refinement_chunk_ids"])
+        self.assertNotIn("chunk0002", plan["refinement_chunk_ids"])
         self.assertTrue(
             any(
                 isinstance(r, dict) and r.get("code") == "glossary_term_hash_changed"
@@ -177,7 +177,7 @@ class RunStateTests(unittest.TestCase):
             )
             plan = run_state.plan(str(temp_dir))
 
-        self.assertEqual(plan["translation_chunk_ids"], ["chunk0001"])
+        self.assertEqual(plan["refinement_chunk_ids"], ["chunk0001"])
 
     def test_output_hash_change_is_record_only(self):
         tmp, temp_dir = self._workspace()
@@ -240,10 +240,15 @@ class RunStateTests(unittest.TestCase):
                 json.dumps(glossary_doc(target="泰"), ensure_ascii=False),
             )
             result = run_state.refinement_plan(str(temp_dir))
-            self.assertEqual(result["waiting_for_translation_chunk_ids"], ["chunk0001"])
+            self.assertEqual(result["refinement_chunk_ids"], ["chunk0001"])
             self.assertEqual(result["refined_chunk_ids"], ["chunk0002"])
-            with self.assertRaises(ValueError):
-                run_state.record_refinement(str(temp_dir), ["chunk0001"])
+            # The second pass incorporates the new glossary rather than redoing
+            # the first pass. It also makes the final glossary snapshot current.
+            run_state.record_refinement(str(temp_dir), ["chunk0001"])
+            self.assertTrue(run_state.assert_refined(str(temp_dir))["ready"])
+            self.assertNotIn(
+                "chunk0001", run_state.plan(str(temp_dir))["translation_chunk_ids"]
+            )
 
     def test_new_first_pass_invalidates_old_refinement(self):
         tmp, temp_dir = self._workspace()
